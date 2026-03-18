@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Luyện Phỏng Vấn AI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <section id="login-page" class="page active">
+            <div class="login-box">
+                <h2>Đăng nhập để bắt đầu</h2>
+                <input type="text" id="username" placeholder="Tên đăng nhập">
+                <input type="password" id="password" placeholder="Mật khẩu">
+                <button id="login-btn">Vào phòng phỏng vấn</button>
+            </div>
+        </section>
+
+        <section id="interview-page" class="page">
+            <header>
+                <h2>Buổi Phỏng Vấn Trực Tuyến</h2>
+                <div class="controls">
+                    <button id="start-btn" class="btn-success">Bắt đầu</button>
+                    <button id="end-btn" class="btn-danger" disabled>Kết thúc</button>
+                </div>
+            </header>
+            
+            <div class="interview-layout">
+                <div class="left-panel panel">
+                    <div class="ai-visual">
+                        <div class="ai-avatar-placeholder">
+                            <span>AI Interviewer</span>
+                        </div>
+                    </div>
+                    <div class="ai-speech">
+                        <p id="ai-text">Xin chào, tôi là AI hỗ trợ phỏng vấn. Hãy nhấn Bắt đầu khi bạn đã sẵn sàng.</p>
+                    </div>
+                </div>
+
+                <div class="right-panel panel">
+                    <div class="webcam-container">
+                        <video id="user-webcam" autoplay muted playsinline></video>
+                    </div>
+                    <div class="user-status">
+                        <p id="recording-status">Camera đã sẵn sàng</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="review-page" class="page">
+            <h2>Kết quả Phỏng Vấn</h2>
+            <div class="review-layout">
+                <div class="video-review">
+                    <h3>Bản ghi hình của bạn</h3>
+                    <div class="video-placeholder">
+                        <span>(Video Record sẽ hiển thị ở đây)</span>
+                    </div>
+                </div>
+                <div class="ai-feedback">
+                    <h3>Đánh giá từ AI</h3>
+                    <ul class="feedback-list">
+                        <li><strong>Biểu cảm khuôn mặt:</strong> Tốt, duy trì giao tiếp bằng mắt (eye-contact) ổn định.</li>
+                        <li><strong>Tốc độ nói:</strong> Hơi nhanh ở câu hỏi số 2, cần tiết chế lại.</li>
+                        <li><strong>Độ tự tin:</strong> 85/100.</li>
+                    </ul>
+                    <button id="retry-btn">Thử lại lần nữa</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
