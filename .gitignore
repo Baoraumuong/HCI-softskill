@@ -1,0 +1,5 @@
+UseCaseDiagram.asta
+*.log
+.env
+node_modules/
+/Web-development/
