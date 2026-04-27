@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { createClient, Session } from '@supabase/supabase-js';
+import { useRouter } from "next/navigation";
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL! ;
@@ -8,6 +9,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 function App() {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isLogin, setIsLogin] = useState(true);
@@ -31,6 +33,13 @@ function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  //redirect after session changes
+  useEffect(() => {
+    if (session) {
+      router.push("/configuration");
+    }
+  }, [session,router]);
 
   const handleLogin: React.SubmitEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
