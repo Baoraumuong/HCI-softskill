@@ -1,36 +1,34 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-
 import AuthForm from "@/components/AuthForm";
 
 export default async function Page() {
-  // ✅ FIX: await cookies()
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         get: (name: string) => cookieStore.get(name)?.value,
+
         set: (name: string, value: string, options: any) => {
           cookieStore.set({ name, value, ...options });
         },
-        remove: (name: string, options: any) => {
-          cookieStore.set({ name, value: "", ...options });
+
+        // ✅ FIXED: proper deletion
+        remove: (name: string) => {
+          cookieStore.delete(name);
         },
       },
     }
   );
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+const { data: { user } } = await supabase.auth.getUser();
 
-  if (session) {
-    redirect("/configuration");
-  }
+if (user) {
+  redirect("/configuration");
+}
 
   return <AuthForm />;
 }
