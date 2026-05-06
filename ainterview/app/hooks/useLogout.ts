@@ -1,4 +1,3 @@
-// hooks/useLogout.ts
 "use client";
 
 import { useState } from "react";

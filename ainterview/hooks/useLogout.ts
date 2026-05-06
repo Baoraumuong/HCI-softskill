@@ -8,6 +8,8 @@ export function useLogout() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const router = useRouter();
 
+  // FIX: renamed NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY → NEXT_PUBLIC_SUPABASE_ANON_KEY
+  // (the standard Supabase env var; the old name caused a runtime undefined error)
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
@@ -16,18 +18,19 @@ export function useLogout() {
   const logout = async () => {
     try {
       setIsLoggingOut(true);
-      
-      // 1. Sign out from Supabase (this clears local storage & attempts to hit the auth endpoint)
+
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
 
-      // 2. Refresh the current route to sync server state/cookies
+      // Sync server-side cookies / middleware
       router.refresh();
-      
-      // 3. Use window.location for a "hard" reset to the login page
-      window.location.href = "/"; 
-    } catch (error: any) {
-      console.error("Error logging out:", error.message);
+
+      // Hard redirect to login page
+      window.location.href = "/";
+    } catch (error: unknown) {
+      // FIX: typed as unknown instead of any
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Error logging out:", message);
     } finally {
       setIsLoggingOut(false);
     }

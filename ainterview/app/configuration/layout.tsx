@@ -1,25 +1,17 @@
-import Sidebar from "@/components/Sidebar";
+import Sidebar from "@/components/Sidebar"; // Adjust path if necessary
+
 export default function ConfigureLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen">
-
-      {/* Sidebar */}
+    <div className="flex min-h-screen bg-[#f7f7f5] font-sans text-gray-900 antialiased">
       <Sidebar />
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col bg-slate-50">
-        <header className="bg-white border-b border-slate-200 px-8 py-6">
-          <h1 className="text-3xl font-bold">Setup Your Interview</h1>
-          <p className="text-slate-500">
-            Customize the AI agent to match your career goals.
-          </p>
-        </header>
-
-        <main className="flex-1 p-8">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-auto">
+        <main className="flex-1 w-full max-w-5xl mx-auto px-6 py-8 md:px-12 md:py-10">
           {children}
         </main>
       </div>
