@@ -1,4 +1,4 @@
-import Sidebar from "@/components/Sidebar"; // Adjust path if necessary
+import Sidebar from "@/app/dashboard/components/Sidebar"; 
 
 export default function ConfigureLayout({
   children,

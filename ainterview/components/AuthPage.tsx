@@ -17,8 +17,6 @@ export function AuthPage({
   intro,
   steps,
   children,
-  backHref = "/",
-  backLabel = "Back home",
 }: AuthPageProps) {
   return (
     <div className="flex min-h-screen flex-col bg-gradient-to-br from-[rgb(232,232,233)] via-[rgba(237,237,237,0.9)] to-[rgb(239,235,238)] text-black">
@@ -30,12 +28,6 @@ export function AuthPage({
             </p>
             <h1 className="text-2xl font-semibold text-black">{title}</h1>
           </div>
-          <Link
-            href={backHref}
-            className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-300 transition hover:text-emerald-200"
-          >
-            {backLabel} →
-          </Link>
         </div>
       </header>
 

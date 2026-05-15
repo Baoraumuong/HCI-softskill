@@ -33,7 +33,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
         setCurrentUser(session?.user ?? null);
         // Redirect to configuration whenever a sign-in is detected
         if (event === "SIGNED_IN") {
-          router.push("/configuration");
+          router.push("/dashboard/configuration");
         }
       }
     );
@@ -51,7 +51,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/welcome`,
+          emailRedirectTo: `${window.location.origin}/dashboard/configuration`,
         },
       });
       if (error) {
@@ -67,7 +67,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
       if (error) {
         setStatus(error.message);
       } else {
-        router.push("/configuration");
+        router.push("/dashboard/configuration");
       }
     }
   }
@@ -151,7 +151,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
             {mode === "signup" ? "Create account" : "Sign in"}
           </button>
           {status && (
-            <p className="mt-4 text-sm text-slate-300" role="status" aria-live="polite">
+            <p className="mt-4 text-sm text-black" role="status" aria-live="polite">
               {status}
             </p>
           )}
