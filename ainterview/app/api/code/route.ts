@@ -41,8 +41,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing code or language_id' }, { status: 400 });
     }
 
-    // Use first test case for free-tier efficiency
-    const stdin = test_cases?.[0]?.input || '';
+    const testCase = test_cases?.[0];
+    const stdin = testCase?.input || '';
+    const expectedOutput = testCase?.output?.trim() || '';
 
     const createRes = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=false`, {
       method: 'POST',
@@ -53,6 +54,8 @@ export async function POST(req: NextRequest) {
         stdin,
         cpu_time_limit: 2,
         memory_limit: 128000,
+        // ✅ Tell Judge0 to compare stdout for you
+        expected_output: expectedOutput,
       }),
     });
 
