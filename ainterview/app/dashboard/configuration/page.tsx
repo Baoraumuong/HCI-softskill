@@ -21,10 +21,7 @@ interface InterviewConfig {
   recordingEnabled:  boolean;
 }
 
-/* Explicit shape returned from Supabase — fixes 'never' TS error */
-interface SessionRow { session_id: string; }
-
-/* ─── Static Data ────────────────────────────────────────── */
+/*Static Data*/
 const INTERVIEW_TYPES = [
   { id: "behavioral", name: "Behavioral", description: "Experiences, soft skills & situational questions", icon: MessageSquare },
   { id: "technical",  name: "Technical",  description: "Theoretical & coding problems",                   icon: Code         },
@@ -49,7 +46,7 @@ const ROLE_SUGGESTIONS = [
   "Product Manager", "Data Scientist",
 ];
 
-/* ─── Small UI Pieces ────────────────────────────────────── */
+/* UI Pieces*/
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-3">{children}</p>;
 }
@@ -84,7 +81,7 @@ function DifficultyDots({ count, colorClass }: { count: number; colorClass: stri
   );
 }
 
-/* ─── Page ───────────────────────────────────────────────── */
+/*Page*/
 export default function ConfigurationPage() {
   const router   = useRouter();
   const supabase = getSupabaseBrowserClient();
@@ -93,7 +90,7 @@ export default function ConfigurationPage() {
   const [validationError, setValErr]  = useState("");
   const [isStarting, setIsStarting]   = useState(false);
 
-  /* ─── Validate ─────────────────────────────────────────── */
+  /*Validate*/
   const validate = (): string => {
     if (!config.interviewType) return "Please select an interview type.";
     if (!config.difficulty)    return "Please select a difficulty level.";
@@ -101,7 +98,7 @@ export default function ConfigurationPage() {
     return "";
   };
 
-  /* ─── Start Interview ───────────────────────────────────── */
+  /*Start Interview */
   const handleStartInterview = async () => {
     const err = validate();
     if (err) { setValErr(err); return; }
@@ -112,16 +109,6 @@ export default function ConfigurationPage() {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) { setValErr("You must be logged in."); return; }
-
-      /*
-       * .single<SessionRow>() is the fix for:
-       * "Object literal may only specify known properties,
-       *  and 'session_id' does not exist in type 'never[]'"
-       *
-       * Without a generated types file, Supabase infers the return
-       * as never[]. Providing the generic tells TypeScript the exact
-       * shape we expect back.
-       */
       const { data: session, error: sessionError } = await supabase
         .from("session")
         .insert({
@@ -130,8 +117,7 @@ export default function ConfigurationPage() {
           level:          config.difficulty,
           role:           config.role.trim(),
         })
-        .select("session_id")
-        .single<SessionRow>();
+        .select("session_id").single();
 
       if (sessionError || !session) {
         console.error("Session error:", sessionError?.message);
@@ -260,7 +246,7 @@ export default function ConfigurationPage() {
             </div>
           </Card>
 
-          {/* CTA */}
+          {/* */}
           <div className="mt-2">
             {validationError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg py-2.5 px-3 mb-3" role="alert">{validationError}</p>}
             <button onClick={handleStartInterview} disabled={isStarting}

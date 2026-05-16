@@ -23,10 +23,6 @@ interface SessionConfig {
   role:           string;
 }
 
-/* Typed return shapes — fix 'never' TS errors */
-interface HistoryRow     { history_id: string; }
-interface SubmissionRow  { submission_id: string; }
-
 const SESSION_LIMIT_SECONDS = 15 * 60;
 const WARNING_AT_SECONDS    = 13 * 60;
 
@@ -164,23 +160,24 @@ export default function CodeEditorPage() {
     finally { setIsLoading(false); }
   };
 
-  /* ─── Save theoretical Q&A ───────────────────────────────── */
+  /* Save theoretical Q&A */
   const saveTheoreticalQA = useCallback(async (question: string, answer: string) => {
     const { sessionId, role, level } = sessionConfig;
 
-    /* history row — typed */
+    /* history row*/
     const { data: hist, error: hErr } = await supabase
       .from("history")
       .insert({ session_id: sessionId, question, answer, video_record: null })
       .select("history_id")
-      .single<HistoryRow>();
+      .single();
 
     if (hErr || !hist) { console.error("History error:", hErr?.message); return; }
 
     const prompt = buildTheoreticalPrompt(role, level, question, answer);
     try {
-      const res = await fetch("/api/interview/analyze", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await fetch("/api/interview/chat", {
+        method: "POST", 
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
       const raw    = await res.json();
@@ -204,7 +201,7 @@ export default function CodeEditorPage() {
         .from("code_submission")
         .insert({ session_id: sessionId, question: currentQuestion, code, language })
         .select("submission_id")
-        .single<SubmissionRow>();
+        .single();
 
       if (subErr) console.error("Submission error:", subErr.message);
 
@@ -213,7 +210,7 @@ export default function CodeEditorPage() {
         .from("history")
         .insert({ session_id: sessionId, question: currentQuestion, answer: code, video_record: null })
         .select("history_id")
-        .single<HistoryRow>();
+        .single();
 
       if (hErr || !hist) { console.error("History error:", hErr?.message); }
 
@@ -281,7 +278,7 @@ export default function CodeEditorPage() {
     finally { setIsLoading(false); }
   };
 
-  /* ─── End session ────────────────────────────────────────── */
+  /*End session*/
   const handleSessionEnd = useCallback(async (reason: "timeout" | "manual") => {
     if (isEnded) return;
     setIsEnded(true);
@@ -294,7 +291,7 @@ export default function CodeEditorPage() {
     router.push(`/dashboard/history?session=${sessionConfig.sessionId}&reason=${reason}`);
   }, [isEnded, interviewTime, sessionConfig.sessionId, supabase, router]);
 
-  /* ─── Render ─────────────────────────────────────────────── */
+  /* page*/
   return (
     <div className="flex h-full w-full bg-[#0d1117]">
 
