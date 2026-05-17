@@ -135,11 +135,7 @@ export default function ConfigurationPage() {
         record:  String(config.recordingEnabled),
       });
 
-      if (config.interviewType === "behavioral") {
-        router.push(`../interview/behavioral?${params}`);
-      } else {
-        router.push(`../interview/code-editor?${params}`);
-      }
+      router.push(`../interview/behavioral?${params}`);
     } catch (e) {
       console.error(e);
       setValErr("Unexpected error. Please try again.");

@@ -1,79 +1,245 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 
-const JUDGE0_URL = 'https://ce.judge0.com';
+/* Judge0 endpoint */
+const JUDGE0_URL = "https://ce.judge0.com";
 
-// Free-tier headers (no API key needed for public CE)
-const headers = {
-  'Content-Type': 'application/json',
-  'X-Requested-With': 'XMLHttpRequest', // Helps bypass some CORS on public CE
+const BASE_HEADERS = {
+  "Content-Type": "application/json",
 };
 
-async function pollSubmission(token: string, maxRetries = 12, delay = 1000) {
+/*Judge0 CE language IDs*/
+export const JUDGE0_LANGUAGE_IDS: Record<string, number> = {
+  python:     71,   
+  java:       62, 
+  cpp:        54,   
+  c:          50,  
+};
+
+/* Judge0 status IDs:
+   1 = In Queue, 2 = Processing, 3 = Accepted,
+   4 = Wrong Answer, 5 = TLE, 6 = Compilation Error,
+   7–12 = Runtime Errors, 13 = Internal Error, 14 = Exec Format Error
+*/
+
+interface TestCase {
+  id: number;
+  input: string;
+  output: string; 
+  is_public?: boolean;
+}
+
+interface SingleResult {
+  id: number;
+  input: string;
+  expected: string;
+  actual: string;
+  passed: boolean;
+  statusId: number;
+  statusDesc: string;
+  time: string | null;
+  memory: number | null;
+  stderr: string | null;
+  compile_output: string | null;
+}
+
+/* ─── Poll a single submission until it finishes ──────────── */
+async function pollToken(
+  token: string,
+  maxRetries = 15,
+  delayMs = 1000,
+): Promise<{
+  statusId: number;
+  statusDesc: string;
+  stdout: string | null;
+  stderr: string | null;
+  compile_output: string | null;
+  time: string | null;
+  memory: number | null;
+}> {
   for (let i = 0; i < maxRetries; i++) {
-    await new Promise((res) => setTimeout(res, delay));
-    
-    const res = await fetch(`${JUDGE0_URL}/submissions/${token}?base64_encoded=false`, { headers });
-    
+    await new Promise((r) => setTimeout(r, delayMs));
+
+    const res = await fetch(
+      `${JUDGE0_URL}/submissions/${token}?base64_encoded=false&fields=status,stdout,stderr,compile_output,time,memory`,
+      { headers: BASE_HEADERS },
+    );
+
     if (res.status === 429) {
-      throw new Error('RATE_LIMITED: Too many submissions. Please wait a moment.');
+      throw new Error("RATE_LIMITED");
     }
-    
+    if (!res.ok) {
+      throw new Error(`Judge0 poll error: ${res.status}`);
+    }
+
     const data = await res.json();
-    if (data.status && data.status.id > 2) {
+    const statusId: number = data.status?.id ?? 0;
+
+    // Status > 2 means the submission is no longer queued/processing
+    if (statusId > 2) {
       return {
-        status: data.status.id,
-        stdout: data.stdout,
-        stderr: data.stderr,
-        time: data.time,
-        memory: data.memory,
-        compile_output: data.compile_output,
+        statusId,
+        statusDesc: data.status?.description ?? "Unknown",
+        stdout:         data.stdout         ?? null,
+        stderr:         data.stderr         ?? null,
+        compile_output: data.compile_output ?? null,
+        time:           data.time           ?? null,
+        memory:         data.memory         ?? null,
       };
     }
   }
-  throw new Error('EXECUTION_TIMEOUT: Judge0 is taking too long. Try a simpler solution.');
+  throw new Error("EXECUTION_TIMEOUT");
 }
 
+/* Submit one test case, return its token*/
+async function submitOne(
+  code: string,
+  languageId: number,
+  stdin: string,
+  expectedOutput: string,
+): Promise<string> {
+  const res = await fetch(
+    `${JUDGE0_URL}/submissions?base64_encoded=false&wait=false`,
+    {
+      method: "POST",
+      headers: BASE_HEADERS,
+      body: JSON.stringify({
+        source_code:      code,
+        language_id:      languageId,
+        stdin,
+        expected_output:  expectedOutput.trim(),
+        cpu_time_limit:   3,      // seconds
+        memory_limit:     128000, // KB
+      }),
+    },
+  );
+
+  if (res.status === 429) throw new Error("RATE_LIMITED");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error ?? `Submission failed: ${res.status}`);
+  }
+
+  const { token } = await res.json();
+  if (!token) throw new Error("Judge0 did not return a token");
+  return token as string;
+}
+
+/* ─── Route handler ───────────────────────────────────────── */
 export async function POST(req: NextRequest) {
   try {
-    const { code, language_id, test_cases } = await req.json();
+    const body = await req.json();
+    const {
+      code,
+      language,          // string key e.g. "python"
+      language_id,       // numeric override (optional)
+      test_cases,        // TestCase[]
+    }: {
+      code: string;
+      language?: string;
+      language_id?: number;
+      test_cases: TestCase[];
+    } = body;
 
-    if (!code || !language_id) {
-      return NextResponse.json({ error: 'Missing code or language_id' }, { status: 400 });
+    /* ── Validate ── */
+    if (!code?.trim()) {
+      return NextResponse.json({ error: "No code provided" }, { status: 400 });
+    }
+    if (!test_cases?.length) {
+      return NextResponse.json({ error: "No test cases provided" }, { status: 400 });
     }
 
-    const testCase = test_cases?.[0];
-    const stdin = testCase?.input || '';
-    const expectedOutput = testCase?.output?.trim() || '';
+    // Resolve language ID
+    const langId: number | undefined =
+      language_id ??
+      (language ? JUDGE0_LANGUAGE_IDS[language.toLowerCase()] : undefined);
 
-    const createRes = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=false`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        source_code: code,
-        language_id,
-        stdin,
-        cpu_time_limit: 2,
-        memory_limit: 128000,
-        // ✅ Tell Judge0 to compare stdout for you
-        expected_output: expectedOutput,
-      }),
+    if (!langId) {
+      return NextResponse.json(
+        { error: `Unsupported language: "${language}". Supported: ${Object.keys(JUDGE0_LANGUAGE_IDS).join(", ")}` },
+        { status: 400 },
+      );
+    }
+
+    /* ── Submit all test cases in parallel ── */
+    let tokens: string[];
+    try {
+      tokens = await Promise.all(
+        test_cases.map((tc) =>
+          submitOne(code, langId, tc.input ?? "", tc.output ?? ""),
+        ),
+      );
+    } catch (err: any) {
+      if (err.message === "RATE_LIMITED") {
+        return NextResponse.json(
+          { error: "Rate limited by Judge0. Please wait ~10 seconds and try again." },
+          { status: 429 },
+        );
+      }
+      throw err;
+    }
+
+    /* ── Poll all tokens in parallel ── */
+    let polled: Awaited<ReturnType<typeof pollToken>>[];
+    try {
+      polled = await Promise.all(tokens.map((t) => pollToken(t)));
+    } catch (err: any) {
+      if (err.message === "RATE_LIMITED") {
+        return NextResponse.json(
+          { error: "Rate limited while polling Judge0." },
+          { status: 429 },
+        );
+      }
+      if (err.message === "EXECUTION_TIMEOUT") {
+        return NextResponse.json(
+          { error: "Execution timed out. Judge0 is busy — try again in a moment." },
+          { status: 504 },
+        );
+      }
+      throw err;
+    }
+
+    /* ── Build per-case results ── */
+    const results: SingleResult[] = test_cases.map((tc, i) => {
+      const p = polled[i];
+      const actual = (p.stdout ?? "").trim();
+      const expected = (tc.output ?? "").trim();
+
+      // Status 3 = Accepted (Judge0 matched expected_output), or we compare manually
+      const passed = p.statusId === 3 || actual === expected;
+
+      return {
+        id:             tc.id,
+        input:          tc.input,
+        expected,
+        actual:         actual || p.stderr || p.compile_output || "(no output)",
+        passed,
+        statusId:       p.statusId,
+        statusDesc:     p.statusDesc,
+        time:           p.time,
+        memory:         p.memory,
+        stderr:         p.stderr,
+        compile_output: p.compile_output,
+      };
     });
 
-    if (createRes.status === 429) {
-      return NextResponse.json({ error: 'RATE_LIMITED: Please wait 10 seconds before retrying.' }, { status: 429 });
-    }
+    /* ── Aggregate ── */
+    const passCount = results.filter((r) => r.passed).length;
+    // Expose compile error from first failing case
+    const compileError =
+      results.find((r) => r.statusId === 6)?.compile_output ?? null;
 
-    if (!createRes.ok) {
-      const err = await createRes.json();
-      return NextResponse.json({ error: err.error || 'Failed to queue submission' }, { status: 500 });
-    }
-
-    const { token } = await createRes.json();
-    const result = await pollSubmission(token);
-
-    return NextResponse.json(result);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({
+      results,
+      summary: {
+        total:  results.length,
+        passed: passCount,
+        failed: results.length - passCount,
+      },
+      compile_error: compileError,
+    });
+  } catch (err: unknown) {
+    console.error("[/api/code] error:", err);
+    const msg = err instanceof Error ? err.message : "Internal server error";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

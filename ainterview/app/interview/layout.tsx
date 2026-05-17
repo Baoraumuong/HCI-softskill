@@ -4,14 +4,18 @@ import { JetBrains_Mono } from "next/font/google";
 import "../globals.css";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
+import {TrainFront} from "lucide-react"
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-mono",
 });
 
-export default function InterviewLayout({ children }: { children: React.ReactNode }) {
+export default function InterviewLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const router = useRouter();
   const [seconds, setSeconds] = useState(0);
   const [mounted, setMounted] = useState(false);
@@ -26,30 +30,38 @@ export default function InterviewLayout({ children }: { children: React.ReactNod
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
-    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(
+      2,
+      "0"
+    )}:${String(sec).padStart(2, "0")}`;
   };
 
   const handleEnd = () => {
     sessionStorage.setItem("interviewDuration", String(seconds));
-    router.push("performance");
+    router.push("/dashboard/history");
   };
 
   return (
-    <div className={`${jetbrainsMono.variable} flex h-screen flex-col overflow-hidden bg-white text-gray-100 antialiased`}>
+    <div
+      className={`${jetbrainsMono.variable} flex h-screen flex-col overflow-hidden bg-gray-50 text-gray-900 antialiased`}
+    >
       {/* ── Header ── */}
-      <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#161b22] px-4">
+      <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 shadow-sm">
         {/* Left — logo + wordmark */}
         <div className="flex items-center gap-2.5">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-600 shrink-0">
-            <svg className="h-3.5 w-3.5 text-white" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4,5 1,8 4,11" />
-              <polyline points="12,5 15,8 12,11" />
-              <line x1="9" y1="3" x2="7" y2="13" />
-            </svg>
+          <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center shrink-0 shadow-sm">
+              <TrainFront
+                size={18}
+                strokeWidth={2.5}
+                className="fill-gray-900"
+              />
           </div>
-          <span className="text-[13px] font-semibold tracking-tight text-white">AInterview</span>
-          <span className="hidden sm:block text-[11px] text-gray-500 border-l border-white/[0.08] pl-2.5 ml-0.5">
+          <span className="text-[13px] font-semibold tracking-tight text-gray-900">
+            AInterview
+          </span>
+
+          <span className="ml-0.5 hidden border-l border-gray-200 pl-2.5 text-[11px] text-gray-500 sm:block">
             Live interview
           </span>
         </div>
@@ -57,13 +69,22 @@ export default function InterviewLayout({ children }: { children: React.ReactNod
         {/* Right — timer + end button */}
         <div className="flex items-center gap-2">
           {/* Timer */}
-          <div className="flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
-            <svg className="h-3 w-3 text-gray-500" viewBox="0 0 16 16" fill="none"
-              stroke="currentColor" strokeWidth="1.5">
+          <div className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1">
+            <svg
+              className="h-3 w-3 text-gray-400"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
               <circle cx="8" cy="8" r="6.5" />
-              <polyline points="8,4.5 8,8 10.5,9.5" strokeLinecap="round" />
+              <polyline
+                points="8,4.5 8,8 10.5,9.5"
+                strokeLinecap="round"
+              />
             </svg>
-            <span className="font-mono text-[12px] tabular-nums text-gray-300">
+
+            <span className="font-mono text-[12px] tabular-nums text-gray-700">
               {mounted ? fmt(seconds) : "00:00:00"}
             </span>
           </div>
@@ -71,18 +92,22 @@ export default function InterviewLayout({ children }: { children: React.ReactNod
           {/* End session */}
           <button
             onClick={handleEnd}
-            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 text-[12px] font-semibold text-white transition hover:bg-red-500 active:scale-[0.97]"
+            className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 text-[12px] font-semibold text-white shadow-sm transition hover:bg-red-500 active:scale-[0.97]"
           >
-            <svg className="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3 4H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"/>
+            <svg
+              className="h-3 w-3"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+            >
+              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3 4H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" />
             </svg>
             End Session
           </button>
         </div>
       </header>
 
-      {/* ── Page content ── */}
-      <main className="flex-1 overflow-hidden">
+      {/* Content */}
+      <main className="flex-1 overflow-hidden bg-gray-50">
         {children}
       </main>
     </div>
