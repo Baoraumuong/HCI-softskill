@@ -1,20 +1,18 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Send, Bot, Clock, AlertTriangle, Play, RotateCcw, ChevronDown } from "lucide-react";
+import {
+  Clock, Play, RotateCcw, ChevronDown, ArrowLeft,
+  CheckCircle2, Code2, FlaskConical, ChevronRight,
+  Loader2, AlertCircle, Terminal, XCircle, Zap,
+} from "lucide-react";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 
-type InterviewType = "technical" | "full";
+/* ─── Types ──────────────────────────────────────────────── */
+type InterviewType = "behavioral" | "technical" | "full";
 type Level         = "junior" | "mid" | "senior";
-type Language      = "javascript" | "python" | "java" | "typescript" | "go" | "cpp";
-
-interface ChatMessage {
-  id: string;
-  sender: "user" | "ai";
-  text: string;
-  timestamp: Date;
-}
+type Language      = "javascript" | "typescript" | "python" | "java" | "go" | "cpp";
 
 interface SessionConfig {
   sessionId:      string;
@@ -23,9 +21,43 @@ interface SessionConfig {
   role:           string;
 }
 
-const SESSION_LIMIT_SECONDS = 15 * 60;
-const WARNING_AT_SECONDS    = 13 * 60;
+interface Problem {
+  problem_id:  string;
+  title:       string;
+  description: string;
+  difficulty:  string | null;
+  languages:   string[];
+}
 
+interface TestCase {
+  id:        number;
+  input:     string;
+  output:    string;
+  is_public: boolean;
+}
+
+interface TestResult {
+  id:             number;
+  input:          string;
+  expected:       string;
+  actual:         string;
+  passed:         boolean;
+  statusId:       number;
+  statusDesc:     string;
+  time:           string | null;
+  memory:         number | null;
+  stderr:         string | null;
+  compile_output: string | null;
+}
+
+interface RunResponse {
+  results:       TestResult[];
+  summary:       { total: number; passed: number; failed: number };
+  compile_error: string | null;
+  error?:        string;
+}
+
+/* ─── Constants ──────────────────────────────────────────── */
 const LANGUAGES: { id: Language; label: string }[] = [
   { id: "javascript", label: "JavaScript" },
   { id: "typescript", label: "TypeScript" },
@@ -36,49 +68,61 @@ const LANGUAGES: { id: Language; label: string }[] = [
 ];
 
 const STARTER_CODE: Record<Language, string> = {
-  javascript: `// Write your solution here\nfunction solution() {\n  \n}\n`,
-  typescript: `// Write your solution here\nfunction solution(): void {\n  \n}\n`,
-  python:     `# Write your solution here\ndef solution():\n    pass\n`,
-  java:       `// Write your solution here\nclass Solution {\n    public void solution() {\n        \n    }\n}\n`,
-  go:         `// Write your solution here\npackage main\n\nfunc solution() {\n\t\n}\n`,
-  cpp:        `// Write your solution here\n#include <iostream>\nusing namespace std;\n\nvoid solution() {\n    \n}\n`,
+  javascript: `// Write your solution here\nfunction solution(input) {\n  // your code\n  return null;\n}\n\n// Read stdin and call solution\nconst lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\\n');\nconsole.log(solution(lines[0]));\n`,
+  typescript: `// Write your solution here\nfunction solution(input: string): string {\n  return "";\n}\n\nimport * as fs from "fs";\nconst input = fs.readFileSync("/dev/stdin", "utf8").trim();\nconsole.log(solution(input));\n`,
+  python:     `import sys\n\ndef solution(input_data: str) -> str:\n    # your code here\n    return ""\n\nif __name__ == "__main__":\n    data = sys.stdin.read().strip()\n    print(solution(data))\n`,
+  java:       `import java.util.Scanner;\n\npublic class Solution {\n    public static String solve(String input) {\n        // your code here\n        return "";\n    }\n\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        StringBuilder sb = new StringBuilder();\n        while (sc.hasNextLine()) sb.append(sc.nextLine()).append("\\n");\n        System.out.print(solve(sb.toString().trim()));\n    }\n}\n`,
+  go:         `package main\n\nimport (\n\t"bufio"\n\t"fmt"\n\t"os"\n)\n\nfunc solution(input string) string {\n\t// your code here\n\treturn ""\n}\n\nfunc main() {\n\tscanner := bufio.NewScanner(os.Stdin)\n\tvar lines []string\n\tfor scanner.Scan() {\n\t\tlines = append(lines, scanner.Text())\n\t}\n\tfmt.Print(solution(strings.Join(lines, "\\n")))\n}\n`,
+  cpp:        `#include <iostream>\n#include <string>\n#include <sstream>\nusing namespace std;\n\nstring solution(string input) {\n    // your code here\n    return "";\n}\n\nint main() {\n    ostringstream ss;\n    ss << cin.rdbuf();\n    cout << solution(ss.str());\n    return 0;\n}\n`,
 };
 
-/* ─── Analysis Prompts ───────────────────────────────────── */
-function buildTheoreticalPrompt(role: string, level: string, question: string, answer: string) {
-  return `You are a senior ${role} evaluating a ${level}-level candidate on a technical theoretical question.
+const LEVEL_TO_DIFFICULTY: Record<Level, string> = {
+  junior: "easy",
+  mid:    "medium",
+  senior: "hard",
+};
 
-Score:
-- technical_accuracy (0–40): Correct and complete for ${level} level?
-- role_relevance (0–20): Relevant to a ${role} role?
-- logical_flow (0–20): Well-structured explanation?
-- conciseness (0–10): Focused, no padding?
-- communication_skill (0–10): Clear and professional?
-
-Question: "${question}"
-Answer: "${answer}"
-
-Respond ONLY with valid JSON, no markdown:
-{"technical_accuracy":<0-40>,"role_relevance":<0-20>,"logical_flow":<0-20>,"conciseness":<0-10>,"communication_skill":<0-10>,"feedback":"<2-3 sentences>"}`;
-}
-
-function buildCodingPrompt(role: string, level: string, question: string, code: string, language: string) {
+/* ─── Scoring prompt ─────────────────────────────────────── */
+function buildCodingPrompt(
+  role: string, level: string,
+  question: string, code: string, language: string,
+  passedCount: number, totalCount: number,
+) {
   return `You are a senior engineer evaluating a ${level}-level ${role} candidate's ${language} code submission.
 
+Test results: ${passedCount}/${totalCount} test cases passed.
+
 Score:
-- correctness (0–80): Solves the problem correctly, handles edge cases?
-- time_complexity (0–10): Optimal time/space complexity?
+- correctness (0–80): Solves the problem correctly for all cases (scale by pass rate)?
+- time_complexity (0–10): Optimal time/space complexity for ${level} level?
 - code_quality (0–10): Readability, naming, structure, comments, modularity?
 
 Question: "${question}"
-Code (${language}): "${code}"
+Code (${language}):
+\`\`\`${language}
+${code}
+\`\`\`
 
-Respond ONLY with valid JSON, no markdown:
-{"correctness":<0-80>,"time_complexity":<0-10>,"code_quality":<0-10>,"feedback":"<2-3 sentences>"}`;
+Respond ONLY with valid JSON, no markdown, no preamble:
+{"correctness":<0-80>,"time_complexity":<0-10>,"code_quality":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
 }
 
-const isTheoreticalQuestion = (question: string) =>
-  /explain|what is|how does|describe|difference between|why|when would you/i.test(question);
+/* ─── Small UI pieces ────────────────────────────────────── */
+function TestBadge({ passed, statusDesc }: { passed: boolean; statusDesc?: string }) {
+  if (passed) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200">
+        <CheckCircle2 size={9} /> PASS
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-red-100 text-red-700 border border-red-200"
+      title={statusDesc}>
+      <XCircle size={9} /> FAIL
+    </span>
+  );
+}
 
 /* ─── Component ──────────────────────────────────────────── */
 export default function CodeEditorPage() {
@@ -87,362 +131,645 @@ export default function CodeEditorPage() {
   const supabase     = getSupabaseBrowserClient();
 
   const sessionConfig: SessionConfig = {
-    sessionId:      searchParams.get("session") ?? "",
-    interview_type: (searchParams.get("type")  as InterviewType) ?? "technical",
-    level:          (searchParams.get("level") as Level)          ?? "mid",
-    role:            searchParams.get("role")                      ?? "Software Engineer",
+    sessionId:      searchParams.get("session")  ?? "",
+    interview_type: (searchParams.get("type")   as InterviewType) ?? "technical",
+    level:          (searchParams.get("level")  as Level)          ?? "mid",
+    role:            searchParams.get("role")                       ?? "Software Engineer",
   };
 
+  // problem_id passed from interview page → fetch by ID
+  const problemIdFromUrl = searchParams.get("problem_id") ?? "";
+
   /* ─── State ─────────────────────────────────────────────── */
-  const [language,     setLanguage]     = useState<Language>("javascript");
-  const [code,         setCode]         = useState(STARTER_CODE.javascript);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput,    setChatInput]    = useState("");
-  const [currentQuestion, setCurrentQuestion] = useState("");
-  const [isLoading,    setIsLoading]    = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [interviewTime, setInterviewTime] = useState(0);
-  const [isStarted,    setIsStarted]    = useState(false);
-  const [isEnded,      setIsEnded]      = useState(false);
-  const [showWarning,  setShowWarning]  = useState(false);
-  const [isSaving,     setIsSaving]     = useState(false);
-  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [language,       setLanguage]       = useState<Language>("javascript");
+  const [code,           setCode]           = useState(STARTER_CODE.javascript);
+  const [langMenuOpen,   setLangMenuOpen]   = useState(false);
+  const [elapsed,        setElapsed]        = useState(0);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [problem,        setProblem]        = useState<Problem | null>(null);
+  const [testCases,      setTestCases]      = useState<TestCase[]>([]);
+  const [loadingProblem, setLoadingProblem] = useState(true);
+  const [problemError,   setProblemError]   = useState<string | null>(null);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages, isLoading]);
+  const [isSubmitting,   setIsSubmitting]   = useState(false);
+  const [isSubmitted,    setIsSubmitted]    = useState(false);
+  const [feedback,       setFeedback]       = useState<string | null>(null);
+
+  const [testResults,    setTestResults]    = useState<TestResult[]>([]);
+  const [runSummary,     setRunSummary]     = useState<RunResponse["summary"] | null>(null);
+  const [compileError,   setCompileError]   = useState<string | null>(null);
+  const [isRunning,      setIsRunning]      = useState(false);
+  const [runError,       setRunError]       = useState<string | null>(null);
+  const [activeTab,      setActiveTab]      = useState<"description" | "testcases" | "results">("description");
+
+  const startTimeRef = useRef(Date.now());
 
   /* ─── Timer ──────────────────────────────────────────────── */
   useEffect(() => {
-    if (!isStarted || isEnded) return;
-    const t = setInterval(() => {
-      setInterviewTime(prev => {
-        const next = prev + 1;
-        if (next >= WARNING_AT_SECONDS) setShowWarning(true);
-        if (next >= SESSION_LIMIT_SECONDS) { clearInterval(t); handleSessionEnd("timeout"); }
-        return next;
-      });
-    }, 1000);
+    const t = setInterval(
+      () => setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000)),
+      1000,
+    );
     return () => clearInterval(t);
-  }, [isStarted, isEnded]);
+  }, []);
 
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
-  const timeRemaining = SESSION_LIMIT_SECONDS - interviewTime;
-  const isUrgent      = timeRemaining <= 120;
 
-  /* ─── Change language ────────────────────────────────────── */
+  /* ─── Fetch problem ──────────────────────────────────────── */
+  useEffect(() => {
+    const fetchProblem = async () => {
+      setLoadingProblem(true);
+      setProblemError(null);
+
+      let picked: Problem | null = null;
+
+      if (problemIdFromUrl) {
+        // Fetch the specific problem passed from the interview page
+        const { data, error } = await supabase
+          .from("problems")
+          .select("problem_id, title, description, difficulty, languages")
+          .eq("problem_id", problemIdFromUrl)
+          .single();
+
+        if (error || !data) {
+          setProblemError(error?.message ?? "Problem not found.");
+          setLoadingProblem(false);
+          return;
+        }
+        picked = data as Problem;
+      } else {
+        // Fallback: fetch a random problem by difficulty
+        const difficulty = LEVEL_TO_DIFFICULTY[sessionConfig.level];
+        const { data: problems, error } = await supabase
+          .from("problems")
+          .select("problem_id, title, description, difficulty, languages")
+          .ilike("difficulty", difficulty);
+
+        if (error || !problems?.length) {
+          setProblemError(error?.message ?? `No ${difficulty} problems found.`);
+          setLoadingProblem(false);
+          return;
+        }
+        picked = problems[Math.floor(Math.random() * problems.length)] as Problem;
+      }
+
+      setProblem(picked);
+
+      // Fetch public test cases
+      const { data: cases } = await supabase
+        .from("testcases")
+        .select("id, input, output, is_public")
+        .eq("problem_id", picked.problem_id)
+        .eq("is_public", true)   // only show public cases to candidate
+        .order("id");
+
+      setTestCases((cases as TestCase[]) ?? []);
+      setLoadingProblem(false);
+    };
+
+    fetchProblem();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problemIdFromUrl, sessionConfig.level]);
+
+  /* ─── Language change ────────────────────────────────────── */
   const changeLanguage = (lang: Language) => {
     setLanguage(lang);
     setCode(STARTER_CODE[lang]);
     setLangMenuOpen(false);
+    setTestResults([]);
+    setRunSummary(null);
+    setCompileError(null);
+    setRunError(null);
   };
 
-  /* ─── Start ──────────────────────────────────────────────── */
-  const startInterview = async () => {
-    if (!sessionConfig.sessionId) { alert("No session found. Please go back and configure again."); return; }
-    setIsStarted(true);
-    setIsLoading(true);
+  /* ─── Run Tests via Judge0 ───────────────────────────────── */
+  const handleRunTests = async () => {
+    if (!testCases.length || !code.trim()) return;
+
+    setIsRunning(true);
+    setRunError(null);
+    setCompileError(null);
+    setActiveTab("results");
+
     try {
-      const res = await fetch("/api/interview/chat", {
-        method: "POST",
+      const res = await fetch("/api/code", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [],
-          context:  { ...sessionConfig, mode: "code-editor" },
+          code,
+          language,
+          test_cases: testCases,
         }),
       });
-      const data = await res.json();
-      const firstQ = data.reply ?? "Let's start. Here's your first question.";
-      setCurrentQuestion(firstQ);
-      setChatMessages([{ id: Date.now().toString(), sender: "ai", text: firstQ, timestamp: new Date() }]);
-    } catch { alert("Failed to load first question."); }
-    finally { setIsLoading(false); }
-  };
 
-  /* Save theoretical Q&A */
-  const saveTheoreticalQA = useCallback(async (question: string, answer: string) => {
-    const { sessionId, role, level } = sessionConfig;
+      const data: RunResponse = await res.json();
 
-    /* history row*/
-    const { data: hist, error: hErr } = await supabase
-      .from("history")
-      .insert({ session_id: sessionId, question, answer, video_record: null })
-      .select("history_id")
-      .single();
-
-    if (hErr || !hist) { console.error("History error:", hErr?.message); return; }
-
-    const prompt = buildTheoreticalPrompt(role, level, question, answer);
-    try {
-      const res = await fetch("/api/interview/chat", {
-        method: "POST", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      const raw    = await res.json();
-      const scores = typeof raw.result === "string" ? JSON.parse(raw.result) : raw.result;
-
-      await supabase.from("result_theoretical").insert({
-        history_id: hist.history_id, session_id: sessionId, ...scores,
-      });
-    } catch (e) { console.error("Theoretical analysis error:", e); }
-  }, [sessionConfig, supabase]);
-
-  /* ─── Submit code ────────────────────────────────────────── */
-  const handleSubmitCode = async () => {
-    if (!code.trim() || !currentQuestion) return;
-    setIsSubmitting(true);
-    const { sessionId, role, level } = sessionConfig;
-
-    try {
-      /* 1. Save to code_submission table — typed */
-      const { data: sub, error: subErr } = await supabase
-        .from("code_submission")
-        .insert({ session_id: sessionId, question: currentQuestion, code, language })
-        .select("submission_id")
-        .single();
-
-      if (subErr) console.error("Submission error:", subErr.message);
-
-      /* 2. Save to history too (for unified view) — typed */
-      const { data: hist, error: hErr } = await supabase
-        .from("history")
-        .insert({ session_id: sessionId, question: currentQuestion, answer: code, video_record: null })
-        .select("history_id")
-        .single();
-
-      if (hErr || !hist) { console.error("History error:", hErr?.message); }
-
-      /* 3. Run coding analysis */
-      if (hist) {
-        const prompt  = buildCodingPrompt(role, level, currentQuestion, code, language);
-        const res     = await fetch("/api/interview/analyze", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
-        });
-        const raw     = await res.json();
-        const scores  = typeof raw.result === "string" ? JSON.parse(raw.result) : raw.result;
-
-        await supabase.from("result_coding").insert({
-          history_id: hist.history_id, session_id: sessionId, ...scores,
-        });
+      if (!res.ok || data.error) {
+        setRunError(data.error ?? "Unknown error from Judge0.");
+        setIsRunning(false);
+        return;
       }
 
-      /* 4. Get next question from AI */
-      const nextRes = await fetch("/api/interview/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...chatMessages, { role: "user", content: `[Code submitted in ${language}]: ${code}` }],
-          context:  { ...sessionConfig, mode: "code-editor" },
-        }),
-      });
-      const nextData = await nextRes.json();
-      const nextQ    = nextData.reply ?? "Good work. Here's your next question.";
-
-      setCurrentQuestion(nextQ);
-      setChatMessages(prev => [
-        ...prev,
-        { id: Date.now().toString(), sender: "user", text: `[Code submitted in ${language}]`, timestamp: new Date() },
-        { id: (Date.now() + 1).toString(), sender: "ai", text: nextQ, timestamp: new Date() },
-      ]);
-      setCode(STARTER_CODE[language]);
-    } catch (e) { console.error("Submit error:", e); alert("Failed to submit code."); }
-    finally { setIsSubmitting(false); }
+      setTestResults(data.results);
+      setRunSummary(data.summary);
+      setCompileError(data.compile_error);
+    } catch (e) {
+      setRunError("Network error — could not reach the code execution service.");
+    } finally {
+      setIsRunning(false);
+    }
   };
 
-  /* ─── Chat send (for theoretical questions typed in chat) ── */
-  const handleChatSend = async () => {
-    if (!chatInput.trim()) return;
-    const userMsg: ChatMessage = { id: Date.now().toString(), sender: "user", text: chatInput.trim(), timestamp: new Date() };
-    const updated = [...chatMessages, userMsg];
-    setChatMessages(updated);
-    setChatInput("");
-    setIsLoading(true);
+  /* ─── Submit ─────────────────────────────────────────────── */
+  const handleSubmit = async () => {
+    if (!code.trim() || !problem) return;
+    setIsSubmitting(true);
 
-    /* If current question looks theoretical, save as theoretical Q&A */
-    if (isTheoreticalQuestion(currentQuestion)) {
-      saveTheoreticalQA(currentQuestion, userMsg.text);
+    const { sessionId, role, level } = sessionConfig;
+    const finalQuestion = problem.description;
+
+    // Run all test cases (including hidden ones for scoring) if not yet run
+    let passedCount = runSummary?.passed ?? 0;
+    let totalCount  = runSummary?.total  ?? testCases.length;
+
+    // If they haven't run tests yet, run them now
+    if (!runSummary) {
+      try {
+        const res  = await fetch("/api/code", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, language, test_cases: testCases }),
+        });
+        const data: RunResponse = await res.json();
+        if (res.ok && !data.error) {
+          setTestResults(data.results);
+          setRunSummary(data.summary);
+          setCompileError(data.compile_error);
+          passedCount = data.summary.passed;
+          totalCount  = data.summary.total;
+        }
+      } catch { /* scoring will use 0/0 */ }
     }
 
     try {
-      const res  = await fetch("/api/interview/chat", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: updated, context: { ...sessionConfig, mode: "code-editor" } }),
+      // Persist raw submission
+      await supabase.from("code_submission").insert({
+        session_id: sessionId,
+        question:   finalQuestion,
+        code,
+        language,
       });
-      const data = await res.json();
-      const next = data.reply ?? "";
-      setCurrentQuestion(next);
-      setChatMessages(prev => [...prev, { id: (Date.now() + 1).toString(), sender: "ai", text: next, timestamp: new Date() }]);
-    } catch { alert("Failed to get AI response."); }
-    finally { setIsLoading(false); }
+
+      // Create history row
+      const { data: hist } = await supabase
+        .from("history")
+        .insert({
+          session_id:   sessionId,
+          question:     finalQuestion,
+          answer:       code,
+          video_record: null,
+        })
+        .select("history_id")
+        .single();
+
+      if (hist) {
+        const prompt = buildCodingPrompt(
+          role, level, finalQuestion, code, language, passedCount, totalCount,
+        );
+
+        // Use the same /api/interview/chat endpoint (or /api/interview/analyze if you have it)
+        const aiRes = await fetch("/api/interview/chat", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ prompt }),
+        });
+
+        if (aiRes.ok) {
+          const raw    = await aiRes.json();
+          const scores = typeof raw.result === "string"
+            ? JSON.parse(raw.result)
+            : raw.result ?? raw;
+
+          await supabase.from("result_coding").insert({
+            history_id:      hist.history_id,
+            session_id:      sessionId,
+            correctness:     scores.correctness     ?? null,
+            time_complexity: scores.time_complexity ?? null,
+            code_quality:    scores.code_quality    ?? null,
+            feedback:        scores.feedback        ?? null,
+            total_score:     scores.total_score     ?? null,
+          });
+
+          setFeedback(scores.feedback ?? null);
+        }
+      }
+
+      setIsSubmitted(true);
+      setActiveTab("results");
+    } catch (e) {
+      console.error("Submit error:", e);
+      alert("Failed to submit code. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  /*End session*/
-  const handleSessionEnd = useCallback(async (reason: "timeout" | "manual") => {
-    if (isEnded) return;
-    setIsEnded(true);
-    setIsSaving(true);
-    await supabase
-      .from("session")
-      .update({ ended_at: new Date().toISOString(), duration_seconds: interviewTime })
-      .eq("session_id", sessionConfig.sessionId);
-    setIsSaving(false);
-    router.push(`/dashboard/history?session=${sessionConfig.sessionId}&reason=${reason}`);
-  }, [isEnded, interviewTime, sessionConfig.sessionId, supabase, router]);
+  /* ─── Difficulty badge colour ────────────────────────────── */
+  const difficultyColor = (d: string | null) => {
+    switch (d?.toLowerCase()) {
+      case "easy":   return "text-emerald-700 bg-emerald-100 border-emerald-200";
+      case "medium": return "text-amber-700 bg-amber-100 border-amber-200";
+      case "hard":   return "text-red-700 bg-red-100 border-red-200";
+      default:       return "text-gray-600 bg-gray-100 border-gray-200";
+    }
+  };
 
-  /* page*/
+  /* ─── Status label helper ────────────────────────────────── */
+  const statusLabel = (statusId: number, desc: string) => {
+    if (statusId === 5) return "Time Limit Exceeded";
+    if (statusId === 6) return "Compilation Error";
+    if (statusId >= 7 && statusId <= 12) return `Runtime Error (${desc})`;
+    return desc;
+  };
+
+  /* ─── Loading / error states ─────────────────────────────── */
+  if (loadingProblem) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-gray-50 text-gray-500">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={28} className="animate-spin text-blue-500" />
+          <p className="text-sm">Loading coding challenge…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (problemError) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-gray-50 text-gray-500">
+        <div className="flex flex-col items-center gap-3 max-w-sm text-center">
+          <AlertCircle size={28} className="text-red-500" />
+          <p className="text-sm text-red-600">{problemError}</p>
+          <button
+            onClick={() => router.back()}
+            className="mt-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs text-gray-700 shadow-sm hover:bg-gray-50 transition"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── Render ─────────────────────────────────────────────── */
   return (
-    <div className="flex h-full w-full bg-[#0d1117]">
+    <div className="flex h-full w-full flex-col bg-gray-50 text-gray-800">
 
-      {/* LEFT — Code Editor */}
-      <section className="flex-1 flex flex-col border-r border-white/[0.06]">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-white shadow-sm shrink-0">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.close()}
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-600 shadow-sm hover:bg-gray-50 transition"
+          >
+            <ArrowLeft size={12} /> Back
+          </button>
 
-        {/* Editor toolbar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-[#161b22]">
-          <div className="flex items-center gap-3">
-            {/* Language selector */}
-            <div className="relative">
-              <button onClick={() => setLangMenuOpen(p => !p)}
-                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/10 transition">
-                {LANGUAGES.find(l => l.id === language)?.label}
-                <ChevronDown size={12} />
-              </button>
-              {langMenuOpen && (
-                <div className="absolute top-full left-0 mt-1 z-50 min-w-[140px] rounded-lg border border-white/10 bg-[#1c2128] shadow-xl overflow-hidden">
-                  {LANGUAGES.map(l => (
-                    <button key={l.id} onClick={() => changeLanguage(l.id)}
-                      className={`w-full text-left px-3 py-2 text-xs transition ${language === l.id ? "bg-blue-600 text-white" : "text-gray-300 hover:bg-white/5"}`}>
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
+          {/* Language selector */}
+          <div className="relative">
+            <button
+              onClick={() => setLangMenuOpen(p => !p)}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition"
+            >
+              {LANGUAGES.find(l => l.id === language)?.label}
+              <ChevronDown size={12} />
+            </button>
+            {langMenuOpen && (
+              <div className="absolute top-full left-0 mt-1 z-50 min-w-[140px] rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
+                {LANGUAGES.map(l => (
+                  <button
+                    key={l.id}
+                    onClick={() => changeLanguage(l.id)}
+                    className={`w-full text-left px-3 py-2 text-xs transition
+                      ${language === l.id
+                        ? "bg-blue-50 text-blue-700 font-medium"
+                        : "text-gray-700 hover:bg-gray-50"}`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => {
+              setCode(STARTER_CODE[language]);
+              setIsSubmitted(false);
+              setFeedback(null);
+              setTestResults([]);
+              setRunSummary(null);
+              setCompileError(null);
+              setRunError(null);
+            }}
+            className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-600 shadow-sm hover:bg-gray-50 transition"
+          >
+            <RotateCcw size={11} /> Reset
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 rounded-full bg-gray-100 border border-gray-200 px-3 py-1 text-xs font-mono text-gray-600">
+            <Clock size={11} /> {formatTime(elapsed)}
+          </div>
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="rounded-full bg-gray-100 border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-600 capitalize">
+              {sessionConfig.role}
+            </span>
+            <span className="rounded-full bg-gray-100 border border-gray-200 px-2.5 py-0.5 text-[11px] text-gray-600 capitalize">
+              {sessionConfig.level}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* LEFT — Problem panel */}
+        <aside className="w-80 lg:w-[420px] shrink-0 border-r border-gray-200 flex flex-col bg-white overflow-hidden">
+
+          {/* Problem header */}
+          <div className="px-5 pt-5 pb-3 border-b border-gray-200 shrink-0">
+            <div className="flex items-center gap-2 mb-2">
+              <Code2 size={13} className="text-emerald-600 shrink-0" />
+              <p className="text-[10px] font-bold tracking-widest uppercase text-emerald-600">
+                Coding Challenge
+              </p>
+              {problem?.difficulty && (
+                <span className={`ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${difficultyColor(problem.difficulty)}`}>
+                  {problem.difficulty}
+                </span>
               )}
             </div>
-
-            <button onClick={() => setCode(STARTER_CODE[language])} title="Reset code"
-              className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-gray-400 hover:bg-white/10 hover:text-gray-200 transition">
-              <RotateCcw size={11} /> Reset
-            </button>
+            <h2 className="text-sm font-semibold text-gray-900 leading-snug">
+              {problem?.title ?? "Coding Challenge"}
+            </h2>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Timer */}
-            {isStarted && !isEnded && (
-              <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${isUrgent ? "bg-red-500/20 text-red-400 animate-pulse" : showWarning ? "bg-amber-500/20 text-amber-400" : "bg-white/5 text-gray-400"}`}>
-                <Clock size={11} /> {formatTime(timeRemaining)}
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200 shrink-0">
+            {[
+              { id: "description", label: "Problem",    icon: <Code2 size={11} /> },
+              { id: "testcases",   label: `Tests (${testCases.length})`, icon: <FlaskConical size={11} /> },
+              { id: "results",     label: "Results",    icon: <Terminal size={11} /> },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-medium transition border-b-2
+                  ${activeTab === tab.id
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"}`}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
+          <div className="flex-1 overflow-y-auto">
+
+            {/* Description */}
+            {activeTab === "description" && (
+              <div className="px-5 py-4">
+                {problem?.description ? (
+                  <p className="text-[13px] text-gray-700 leading-relaxed whitespace-pre-wrap">
+                    {problem.description}
+                  </p>
+                ) : (
+                  <p className="text-[13px] text-gray-500 italic">
+                    No problem loaded.
+                  </p>
+                )}
               </div>
             )}
-            {isStarted && !isEnded && (
-              <button onClick={() => handleSessionEnd("manual")} disabled={isSaving}
-                className="rounded-lg bg-red-600/80 hover:bg-red-600 text-white text-xs font-semibold px-3 py-1.5 transition disabled:opacity-50">
-                {isSaving ? "Saving…" : "End Interview"}
-              </button>
+
+            {/* Test cases */}
+            {activeTab === "testcases" && (
+              <div className="px-5 py-4 space-y-3">
+                {testCases.length === 0 ? (
+                  <p className="text-[12px] text-gray-500 italic">No public test cases.</p>
+                ) : testCases.map((tc, i) => (
+                  <div key={tc.id} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                    <div className="px-3 py-2 border-b border-gray-200 bg-white">
+                      <span className="text-[10px] font-bold tracking-wider text-gray-500 uppercase">
+                        Case {i + 1}
+                      </span>
+                    </div>
+                    <div className="px-3 py-2.5 space-y-2">
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Input</p>
+                        <pre className="text-[11.5px] text-emerald-700 font-mono leading-relaxed whitespace-pre-wrap break-all">
+                          {tc.input}
+                        </pre>
+                      </div>
+                      <div className="border-t border-gray-200 pt-2">
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Expected</p>
+                        <pre className="text-[11.5px] text-blue-700 font-mono leading-relaxed whitespace-pre-wrap break-all">
+                          {tc.output}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Results */}
+            {activeTab === "results" && (
+              <div className="px-5 py-4 space-y-3">
+
+                {/* Run error */}
+                {runError && (
+                  <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3">
+                    <p className="text-[11px] font-semibold text-red-700 mb-1">Execution Error</p>
+                    <p className="text-[11px] text-red-600 font-mono leading-relaxed">{runError}</p>
+                  </div>
+                )}
+
+                {/* Compile error */}
+                {compileError && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+                    <p className="text-[11px] font-semibold text-amber-700 mb-1">Compilation Error</p>
+                    <pre className="text-[11px] text-amber-700 font-mono leading-relaxed whitespace-pre-wrap break-all">
+                      {compileError}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Summary bar */}
+                {runSummary && (
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
+                    <span className="text-[11px] text-gray-600">
+                      {runSummary.passed} / {runSummary.total} passed
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-emerald-600 font-bold">{runSummary.passed} ✓</span>
+                      {runSummary.failed > 0 && (
+                        <span className="text-[10px] text-red-600 font-bold">{runSummary.failed} ✗</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Per-case results */}
+                {testResults.length === 0 && !runError ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+                    <Terminal size={20} className="text-gray-400" />
+                    <p className="text-[12px] text-gray-500">
+                      Click <strong className="text-gray-700">Run Tests</strong> to execute your code.
+                    </p>
+                  </div>
+                ) : testResults.map((r, i) => (
+                  <div key={r.id} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-white">
+                      <span className="text-[10px] font-bold tracking-wider text-gray-500 uppercase">
+                        Case {i + 1}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {r.time && (
+                          <span className="text-[9px] text-gray-500 flex items-center gap-0.5">
+                            <Zap size={8} /> {r.time}s
+                          </span>
+                        )}
+                        <TestBadge passed={r.passed} statusDesc={statusLabel(r.statusId, r.statusDesc)} />
+                      </div>
+                    </div>
+                    <div className="px-3 py-2.5 space-y-2 text-[11.5px] font-mono">
+                      <div>
+                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-sans">Input: </span>
+                        <span className="text-gray-700">{r.input}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-sans">Expected: </span>
+                        <span className="text-blue-700">{r.expected}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-sans">Got: </span>
+                        <span className={r.passed ? "text-emerald-700" : "text-red-700"}>
+                          {r.actual}
+                        </span>
+                      </div>
+                      {/* Runtime error detail */}
+                      {r.stderr && !r.passed && (
+                        <div className="border-t border-gray-200 pt-2">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wider font-sans mb-1">Stderr:</p>
+                          <pre className="text-[10px] text-red-600 whitespace-pre-wrap break-all">{r.stderr}</pre>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        </div>
 
-        {/* Warning */}
-        {showWarning && !isEnded && (
-          <div className="flex items-center gap-2 bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-xs font-medium text-amber-400">
-            <AlertTriangle size={13} />
-            {isUrgent ? "Less than 2 minutes left — wrap up!" : "2 minutes remaining."}
-          </div>
-        )}
-
-        {/* Code area */}
-        <div className="flex-1 relative">
-          {!isStarted ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-gray-500">
-              <p className="text-sm">Click "Start Interview" to receive your first question</p>
-              <button onClick={startInterview}
-                className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 transition animate-pulse hover:animate-none">
-                Start Interview
-              </button>
-            </div>
-          ) : (
-            <textarea
-              value={code}
-              onChange={e => setCode(e.target.value)}
-              disabled={isEnded}
-              spellCheck={false}
-              className="w-full h-full bg-transparent px-5 py-4 text-[13px] text-gray-200 font-mono leading-relaxed resize-none outline-none disabled:opacity-50"
-              style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace" }}
-            />
-          )}
-        </div>
-
-        {/* Submit */}
-        {isStarted && !isEnded && (
-          <div className="border-t border-white/[0.06] px-4 py-3 bg-[#161b22] flex items-center justify-between gap-4">
-            <p className="text-[11px] text-gray-500">Press <kbd className="rounded bg-white/10 px-1.5 py-0.5 text-gray-400">Submit</kbd> when your solution is ready</p>
-            <button onClick={handleSubmitCode} disabled={isSubmitting || !code.trim()}
-              className="flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 transition disabled:opacity-50">
-              <Play size={13} /> {isSubmitting ? "Evaluating…" : "Submit Solution"}
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* RIGHT — Question + Chat */}
-      <section className="w-full max-w-sm lg:max-w-md flex flex-col bg-[#0d1117]">
-
-        {/* Question panel */}
-        {currentQuestion && (
-          <div className="border-b border-white/[0.06] bg-[#161b22] px-5 py-4">
-            <p className="text-[10px] font-bold tracking-widest uppercase text-blue-400 mb-2">Current Question</p>
-            <p className="text-[13px] text-gray-200 leading-relaxed">{currentQuestion}</p>
-          </div>
-        )}
-
-        {/* Chat header */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.06] bg-[#161b22]">
-          <Bot size={16} className="text-blue-400" />
-          <span className="text-xs font-semibold text-gray-300">AI Interviewer</span>
-          {isStarted && <span className="ml-auto text-[10px] font-mono text-gray-500">{formatTime(interviewTime)}</span>}
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {!isStarted ? (
-            <div className="h-full flex flex-col items-center justify-center text-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400"><Bot size={20} /></div>
-              <p className="text-xs text-gray-500 max-w-[220px]">Start the interview to receive questions. Use the code editor on the left for coding problems.</p>
-            </div>
-          ) : chatMessages.map(msg => (
-            <div key={msg.id} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed ${msg.sender === "user" ? "bg-blue-600 text-white rounded-tr-sm" : "bg-[#1c2128] border border-white/[0.06] text-gray-200 rounded-tl-sm"}`}>
-                {msg.text}
+          {/* Bottom: submit section */}
+          <div className="border-t border-gray-200 px-5 py-4 shrink-0 bg-gray-50">
+            {isSubmitted ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={14} className="text-emerald-600" />
+                  <p className="text-[10px] font-bold tracking-widest uppercase text-emerald-600">Submitted</p>
+                  {runSummary && (
+                    <span className="ml-auto text-[10px] text-gray-500">
+                      {runSummary.passed}/{runSummary.total} tests
+                    </span>
+                  )}
+                </div>
+                {feedback && (
+                  <p className="text-[12px] text-gray-600 leading-relaxed">{feedback}</p>
+                )}
+                <button
+                  onClick={() => window.close()}
+                  className="w-full rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium py-2 transition shadow-sm"
+                >
+                  Close Editor
+                </button>
               </div>
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="flex gap-1.5 items-center rounded-2xl bg-[#1c2128] border border-white/[0.06] px-4 py-3">
-                {[0, 150, 300].map(d => <span key={d} className="w-1.5 h-1.5 rounded-full bg-gray-500 animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
-              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Run tests to verify your solution, then <strong className="text-gray-700">Submit</strong> when ready.
+                <br />
+                <span className="text-[10px] text-gray-400">Powered by Judge0 CE · free tier</span>
+              </p>
+            )}
+          </div>
+        </aside>
+
+        {/* RIGHT — Code editor */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-white">
+
+          {/* Submitted banner */}
+          {isSubmitted && (
+            <div className="flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-5 py-2 text-xs text-emerald-700 font-medium shrink-0">
+              <CheckCircle2 size={12} /> Solution submitted — feedback shown on the left.
             </div>
           )}
-          <div ref={messagesEndRef} />
-        </div>
 
-        {/* Chat input — for theoretical questions */}
-        {isStarted && !isEnded && (
-          <div className="p-4 border-t border-white/[0.06]">
-            <div className="flex items-end gap-2">
-              <textarea rows={1} value={chatInput} placeholder="Answer theoretical questions here…" disabled={isLoading}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
-                className="flex-1 min-h-[40px] max-h-[100px] rounded-xl border border-white/10 bg-[#1c2128] px-3.5 py-2.5 text-[12.5px] text-gray-200 outline-none focus:border-blue-500 resize-none disabled:opacity-50 placeholder:text-gray-600" />
-              <button onClick={handleChatSend} disabled={isLoading || !chatInput.trim()}
-                className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-500 disabled:opacity-50">
-                <Send size={15} />
-              </button>
+          {/* Code textarea */}
+          <textarea
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            disabled={isSubmitted}
+            spellCheck={false}
+            className="flex-1 w-full bg-white px-6 py-5 text-[13px] text-gray-800 font-mono leading-relaxed resize-none outline-none disabled:bg-gray-100 disabled:text-gray-500"
+            style={{ fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace" }}
+            placeholder="// Start coding your solution here…"
+          />
+
+          {/* Action bar */}
+          {!isSubmitted && (
+            <div className="border-t border-gray-200 px-5 py-3 bg-gray-50 flex items-center justify-between gap-4 shrink-0">
+              <p className="text-[11px] text-gray-500 hidden sm:block">
+                Real execution via Judge0 CE · results appear in the Results tab
+              </p>
+
+              <div className="flex items-center gap-2 ml-auto">
+                {testCases.length > 0 && (
+                  <button
+                    onClick={handleRunTests}
+                    disabled={isRunning || !code.trim()}
+                    className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium px-3 py-2 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isRunning
+                      ? <Loader2 size={12} className="animate-spin" />
+                      : <FlaskConical size={12} />
+                    }
+                    {isRunning ? "Running…" : "Run Tests"}
+                  </button>
+                )}
+
+                <button
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !code.trim()}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : <Play size={13} />
+                  }
+                  {isSubmitting ? "Evaluating…" : "Submit Solution"}
+                </button>
+              </div>
             </div>
-            <p className="mt-2 text-[10px] text-gray-600">Use the code editor above for coding problems • Chat for theory questions</p>
-          </div>
-        )}
-      </section>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
+
+

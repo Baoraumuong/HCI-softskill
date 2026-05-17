@@ -277,31 +277,40 @@ export type Database = {
         Row: {
           duration_seconds: number | null
           ended_at: string | null
+          engagement_score: number | null
+          in_frame_pct: number | null
           interview_type: string
           level: string
           role: string
           session_id: string
           started_at: string | null
+          upright_pct: number | null
           user_id: string
         }
         Insert: {
           duration_seconds?: number | null
           ended_at?: string | null
+          engagement_score?: number | null
+          in_frame_pct?: number | null
           interview_type: string
           level: string
           role: string
           session_id?: string
           started_at?: string | null
+          upright_pct?: number | null
           user_id: string
         }
         Update: {
           duration_seconds?: number | null
           ended_at?: string | null
+          engagement_score?: number | null
+          in_frame_pct?: number | null
           interview_type?: string
           level?: string
           role?: string
           session_id?: string
           started_at?: string | null
+          upright_pct?: number | null
           user_id?: string
         }
         Relationships: [
