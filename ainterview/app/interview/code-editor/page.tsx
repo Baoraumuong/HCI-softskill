@@ -107,7 +107,7 @@ Respond ONLY with valid JSON, no markdown, no preamble:
 {"correctness":<0-80>,"time_complexity":<0-10>,"code_quality":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
 }
 
-/*UI pieces */
+/* ─── Small UI pieces ────────────────────────────────────── */
 function TestBadge({ passed, statusDesc }: { passed: boolean; statusDesc?: string }) {
   if (passed) {
     return (
@@ -124,7 +124,7 @@ function TestBadge({ passed, statusDesc }: { passed: boolean; statusDesc?: strin
   );
 }
 
-/* Component  */
+/* ─── Component ──────────────────────────────────────────── */
 export default function CodeEditorPage() {
   const router       = useRouter();
   const searchParams = useSearchParams();
@@ -140,7 +140,7 @@ export default function CodeEditorPage() {
   // problem_id passed from interview page → fetch by ID
   const problemIdFromUrl = searchParams.get("problem_id") ?? "";
 
-  /* State */
+  /* ─── State ─────────────────────────────────────────────── */
   const [language,       setLanguage]       = useState<Language>("javascript");
   const [code,           setCode]           = useState(STARTER_CODE.javascript);
   const [langMenuOpen,   setLangMenuOpen]   = useState(false);
@@ -164,7 +164,7 @@ export default function CodeEditorPage() {
 
   const startTimeRef = useRef(Date.now());
 
-  /*Timer*/
+  /* ─── Timer ──────────────────────────────────────────────── */
   useEffect(() => {
     const t = setInterval(
       () => setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000)),
@@ -176,7 +176,7 @@ export default function CodeEditorPage() {
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
-  /* Fetch problem*/
+  /* ─── Fetch problem ──────────────────────────────────────── */
   useEffect(() => {
     const fetchProblem = async () => {
       setLoadingProblem(true);
@@ -199,7 +199,7 @@ export default function CodeEditorPage() {
         }
         picked = data as Problem;
       } else {
-        // fetch a random problem by difficulty
+        // Fallback: fetch a random problem by difficulty
         const difficulty = LEVEL_TO_DIFFICULTY[sessionConfig.level];
         const { data: problems, error } = await supabase
           .from("problems")
@@ -229,9 +229,10 @@ export default function CodeEditorPage() {
     };
 
     fetchProblem();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [problemIdFromUrl, sessionConfig.level]);
 
-  /* Language change */
+  /* ─── Language change ────────────────────────────────────── */
   const changeLanguage = (lang: Language) => {
     setLanguage(lang);
     setCode(STARTER_CODE[lang]);
@@ -242,7 +243,7 @@ export default function CodeEditorPage() {
     setRunError(null);
   };
 
-  /* Run Tests via Judge0 */
+  /* ─── Run Tests via Judge0 ───────────────────────────────── */
   const handleRunTests = async () => {
     if (!testCases.length || !code.trim()) return;
 
@@ -280,7 +281,7 @@ export default function CodeEditorPage() {
     }
   };
 
-  /*Submit */
+  /* ─── Submit ─────────────────────────────────────────────── */
   const handleSubmit = async () => {
     if (!code.trim() || !problem) return;
     setIsSubmitting(true);
@@ -288,11 +289,12 @@ export default function CodeEditorPage() {
     const { sessionId, role, level } = sessionConfig;
     const finalQuestion = problem.description;
 
-    // Run all test cases first (or reuse existing run results)
+    // Run all test cases (including hidden ones for scoring) if not yet run
     let passedCount = runSummary?.passed ?? 0;
     let totalCount  = runSummary?.total  ?? testCases.length;
 
-    if (!runSummary && testCases.length > 0) {
+    // If they haven't run tests yet, run them now
+    if (!runSummary) {
       try {
         const res  = await fetch("/api/code", {
           method:  "POST",
@@ -303,17 +305,15 @@ export default function CodeEditorPage() {
         if (res.ok && !data.error) {
           setTestResults(data.results);
           setRunSummary(data.summary);
-          setCompileError(data.compile_error ?? null);
+          setCompileError(data.compile_error);
           passedCount = data.summary.passed;
           totalCount  = data.summary.total;
         }
-      } catch {
-        // Scoring will proceed with 0/0 — not ideal but shouldn't block submission
-      }
+      } catch { /* scoring will use 0/0 */ }
     }
 
     try {
-      // 1. Persist raw code submission
+      // Persist raw submission
       await supabase.from("code_submission").insert({
         session_id: sessionId,
         question:   finalQuestion,
@@ -321,8 +321,8 @@ export default function CodeEditorPage() {
         language,
       });
 
-      // 2. Create history row (answer = the submitted code)
-      const { data: hist, error: histErr } = await supabase
+      // Create history row
+      const { data: hist } = await supabase
         .from("history")
         .insert({
           session_id:   sessionId,
@@ -333,73 +333,38 @@ export default function CodeEditorPage() {
         .select("history_id")
         .single();
 
-      if (histErr || !hist) {
-        console.error("History insert error:", histErr?.message);
-        setIsSubmitting(false);
-        return;
-      }
-
-      const prompt = buildCodingPrompt(
-        role, level, finalQuestion, code, language, passedCount, totalCount,
-      );
-
-      // 4. Call the analysis endpoint
-      const aiRes = await fetch("/api/interview/chat", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ prompt }),
-      });
-
-      if (!aiRes.ok) {
-        console.error("Analysis API error:", aiRes.status);
-        setIsSubmitted(true);
-        setActiveTab("results");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const raw = await aiRes.json();
-      let scores: {
-        correctness?:     number;
-        time_complexity?: number;
-        code_quality?:    number;
-        feedback?:        string;
-        total_score?:     number;
-      };
-
-      try {
-        const parsed = raw.result ?? raw;
-        scores = typeof parsed === "string" ? JSON.parse(parsed) : parsed;
-      } catch {
-        console.error("Could not parse scoring response:", raw);
-        scores = {};
-      }
-      //   correctness/80 + time_complexity/10 + code_quality/10 = 100
-      const computedTotal =
-        scores.total_score ??
-        Math.min(
-          100,
-          (scores.correctness     ?? 0) +
-          (scores.time_complexity ?? 0) +
-          (scores.code_quality    ?? 0),
+      if (hist) {
+        const prompt = buildCodingPrompt(
+          role, level, finalQuestion, code, language, passedCount, totalCount,
         );
 
-      // result_coding
-      const { error: resultErr } = await supabase.from("result_coding").insert({
-        history_id:      hist.history_id,
-        session_id:      sessionId,
-        correctness:     scores.correctness     ?? null,
-        time_complexity: scores.time_complexity ?? null,
-        code_quality:    scores.code_quality    ?? null,
-        feedback:        scores.feedback        ?? null,
-        total_score:     computedTotal,
-      });
+        // Use the same /api/interview/chat endpoint (or /api/interview/analyze if you have it)
+        const aiRes = await fetch("/api/interview/chat", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ prompt }),
+        });
 
-      if (resultErr) {
-        console.error("result_coding insert error:", resultErr.message);
+        if (aiRes.ok) {
+          const raw    = await aiRes.json();
+          const scores = typeof raw.result === "string"
+            ? JSON.parse(raw.result)
+            : raw.result ?? raw;
+
+          await supabase.from("result_coding").insert({
+            history_id:      hist.history_id,
+            session_id:      sessionId,
+            correctness:     scores.correctness     ?? null,
+            time_complexity: scores.time_complexity ?? null,
+            code_quality:    scores.code_quality    ?? null,
+            feedback:        scores.feedback        ?? null,
+            total_score:     scores.total_score     ?? null,
+          });
+
+          setFeedback(scores.feedback ?? null);
+        }
       }
 
-      setFeedback(scores.feedback ?? null);
       setIsSubmitted(true);
       setActiveTab("results");
     } catch (e) {
@@ -806,5 +771,3 @@ export default function CodeEditorPage() {
     </div>
   );
 }
-
-
