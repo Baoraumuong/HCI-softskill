@@ -13,13 +13,13 @@
  *     result_theoretical = theoretical, result_coding = coding).
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
-  ChevronDown, ChevronRight, Play, Pause, RotateCcw,
+  ChevronDown, ChevronRight,
   MessageSquare, Code, Layers, Trophy, Clock, Calendar,
   TrendingUp, AlertCircle, CheckCircle2, Target, Mic,
-  BarChart3, FileText, Video, Eye, Activity,
+  BarChart3, FileText, Eye, Activity,
   Brain, Zap, Award, Users,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
@@ -49,7 +49,6 @@ interface HistoryItem {
   question:     string;
   answer:       string;
   asked_at:     string | null;
-  video_record: string | null;
 }
 
 interface ResultCommunication {
@@ -87,7 +86,6 @@ interface QAWithResult {
   result_communication?: ResultCommunication;
   result_theoretical?:   ResultTheoretical;
   result_coding?:        ResultCoding;
-  videoUrl?:             string;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -396,50 +394,13 @@ function OverallAnalysisPanel({
 }
 
 /* ─────────────────────────────────────────────────────────────
-   VIDEO PLAYER
-───────────────────────────────────────────────────────────── */
-function VideoPlayer({ url }: { url: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-
-  const toggle  = () => {
-    if (!videoRef.current) return;
-    if (playing) { videoRef.current.pause(); setPlaying(false); }
-    else         { videoRef.current.play();  setPlaying(true);  }
-  };
-  const restart = () => {
-    if (!videoRef.current) return;
-    videoRef.current.currentTime = 0;
-    videoRef.current.play();
-    setPlaying(true);
-  };
-
-  return (
-    <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video">
-      <video ref={videoRef} src={url} className="w-full h-full object-cover"
-        onEnded={() => setPlaying(false)} />
-      <div className="absolute inset-0 flex items-center justify-center gap-3">
-        <button onClick={toggle}
-          className="flex items-center justify-center w-10 h-10 rounded-full bg-white/90 text-gray-900 shadow-lg hover:bg-white transition">
-          {playing ? <Pause size={18} /> : <Play size={18} />}
-        </button>
-        <button onClick={restart}
-          className="flex items-center justify-center w-8 h-8 rounded-full bg-white/70 text-gray-900 shadow hover:bg-white/90 transition">
-          <RotateCcw size={14} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────
    QA CARD
 ───────────────────────────────────────────────────────────── */
 function QACard({
   item, index,
 }: { item: QAWithResult; index: number; interviewType: InterviewType }) {
   const [expanded, setExpanded] = useState(index === 0);
-  const { history, result_communication, result_theoretical, result_coding, videoUrl } = item;
+  const { history, result_communication, result_theoretical, result_coding } = item;
 
   const result     = result_communication ?? result_theoretical ?? result_coding;
   const totalScore = result?.total_score ?? null;
@@ -519,24 +480,10 @@ function QACard({
 
       {expanded && (
         <div className="border-t border-gray-100 p-5 flex flex-col gap-5">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div>
-              <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-2">Your Answer</p>
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-48 overflow-y-auto">
-                <p className="text-[12.5px] text-gray-700 leading-relaxed whitespace-pre-wrap">{history.answer}</p>
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-2">Recording</p>
-              {videoUrl
-                ? <VideoPlayer url={videoUrl} />
-                : (
-                  <div className="aspect-video rounded-xl bg-gray-100 border border-gray-200 flex flex-col items-center justify-center gap-2 text-gray-400">
-                    <Video size={24} className="opacity-40" />
-                    <p className="text-[11px]">No recording</p>
-                  </div>
-                )
-              }
+          <div>
+            <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-2">Your Answer</p>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-64 overflow-y-auto">
+              <p className="text-[12.5px] text-gray-700 leading-relaxed whitespace-pre-wrap">{history.answer}</p>
             </div>
           </div>
 
@@ -613,7 +560,7 @@ function SessionListItem({
 /* ─────────────────────────────────────────────────────────────
    PAGE
 ───────────────────────────────────────────────────────────── */
-export default function HistoryPage() {
+function HistoryPageContent() {
   const searchParams = useSearchParams();
   const router       = useRouter();
   const supabase     = getSupabaseBrowserClient();
@@ -658,7 +605,7 @@ export default function HistoryPage() {
 
       const { data: histRows, error: hErr } = await supabase
         .from("history")
-        .select("history_id, question, answer, asked_at, video_record")
+        .select("history_id, question, answer, asked_at")
         .eq("session_id", activeId)
         .order("asked_at", { ascending: true });
 
@@ -676,24 +623,12 @@ export default function HistoryPage() {
       const theoMap = Object.fromEntries((theoRes.data ?? []).map(r => [r.history_id, r]));
       const codeMap = Object.fromEntries((codeRes.data ?? []).map(r => [r.history_id, r]));
 
-      const items: QAWithResult[] = await Promise.all(
-        histRows.map(async h => {
-          let videoUrl: string | undefined;
-          if (h.video_record) {
-            const { data: signed } = await supabase.storage
-              .from("interview-recordings")
-              .createSignedUrl(h.video_record, 3600);
-            videoUrl = signed?.signedUrl;
-          }
-          return {
-            history:               h as HistoryItem,
-            result_communication:  commMap[h.history_id] as ResultCommunication | undefined,
-            result_theoretical:    theoMap[h.history_id] as ResultTheoretical   | undefined,
-            result_coding:         codeMap[h.history_id] as ResultCoding         | undefined,
-            videoUrl,
-          };
-        })
-      );
+      const items: QAWithResult[] = histRows.map(h => ({
+        history:               h as HistoryItem,
+        result_communication:  commMap[h.history_id] as ResultCommunication | undefined,
+        result_theoretical:    theoMap[h.history_id] as ResultTheoretical   | undefined,
+        result_coding:         codeMap[h.history_id] as ResultCoding         | undefined,
+      }));
 
       setQaItems(items);
       setDetailLoad(false);
@@ -893,5 +828,13 @@ export default function HistoryPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function HistoryPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-500">Loading history...</div>}>
+      <HistoryPageContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Clock, Play, RotateCcw, ChevronDown, ArrowLeft,
@@ -68,11 +68,11 @@ const LANGUAGES: { id: Language; label: string }[] = [
 ];
 
 const STARTER_CODE: Record<Language, string> = {
-  javascript: `// Write your solution here\nfunction solution(input) {\n  // your code\n  return null;\n}\n\n// Read stdin and call solution\nconst lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\\n');\nconsole.log(solution(lines[0]));\n`,
+  javascript: `// Write your solution here\nfunction solution(input) {\n  // your code\n  return "";\n}\n\n// Read stdin and call solution\nconst input = require('fs').readFileSync('/dev/stdin', 'utf8').trim();\nconsole.log(solution(input));\n`,
   typescript: `// Write your solution here\nfunction solution(input: string): string {\n  return "";\n}\n\nimport * as fs from "fs";\nconst input = fs.readFileSync("/dev/stdin", "utf8").trim();\nconsole.log(solution(input));\n`,
   python:     `import sys\n\ndef solution(input_data: str) -> str:\n    # your code here\n    return ""\n\nif __name__ == "__main__":\n    data = sys.stdin.read().strip()\n    print(solution(data))\n`,
   java:       `import java.util.Scanner;\n\npublic class Solution {\n    public static String solve(String input) {\n        // your code here\n        return "";\n    }\n\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        StringBuilder sb = new StringBuilder();\n        while (sc.hasNextLine()) sb.append(sc.nextLine()).append("\\n");\n        System.out.print(solve(sb.toString().trim()));\n    }\n}\n`,
-  go:         `package main\n\nimport (\n\t"bufio"\n\t"fmt"\n\t"os"\n)\n\nfunc solution(input string) string {\n\t// your code here\n\treturn ""\n}\n\nfunc main() {\n\tscanner := bufio.NewScanner(os.Stdin)\n\tvar lines []string\n\tfor scanner.Scan() {\n\t\tlines = append(lines, scanner.Text())\n\t}\n\tfmt.Print(solution(strings.Join(lines, "\\n")))\n}\n`,
+  go:         `package main\n\nimport (\n\t"bufio"\n\t"fmt"\n\t"os"\n\t"strings"\n)\n\nfunc solution(input string) string {\n\t// your code here\n\treturn ""\n}\n\nfunc main() {\n\tscanner := bufio.NewScanner(os.Stdin)\n\tvar lines []string\n\tfor scanner.Scan() {\n\t\tlines = append(lines, scanner.Text())\n\t}\n\tfmt.Print(solution(strings.Join(lines, "\\n")))\n}\n`,
   cpp:        `#include <iostream>\n#include <string>\n#include <sstream>\nusing namespace std;\n\nstring solution(string input) {\n    // your code here\n    return "";\n}\n\nint main() {\n    ostringstream ss;\n    ss << cin.rdbuf();\n    cout << solution(ss.str());\n    return 0;\n}\n`,
 };
 
@@ -107,6 +107,26 @@ Respond ONLY with valid JSON, no markdown, no preamble:
 {"correctness":<0-80>,"time_complexity":<0-10>,"code_quality":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
 }
 
+function parseJsonObject(raw: unknown) {
+  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
+  if (typeof raw !== "string") return {};
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const text = (fenced ?? raw).trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return {};
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function numberOrNull(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /* ─── Small UI pieces ────────────────────────────────────── */
 function TestBadge({ passed, statusDesc }: { passed: boolean; statusDesc?: string }) {
   if (passed) {
@@ -125,7 +145,7 @@ function TestBadge({ passed, statusDesc }: { passed: boolean; statusDesc?: strin
 }
 
 /* ─── Component ──────────────────────────────────────────── */
-export default function CodeEditorPage() {
+function CodeEditorPageContent() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const supabase     = getSupabaseBrowserClient();
@@ -285,53 +305,57 @@ export default function CodeEditorPage() {
   const handleSubmit = async () => {
     if (!code.trim() || !problem) return;
     setIsSubmitting(true);
+    setRunError(null);
+    setCompileError(null);
 
     const { sessionId, role, level } = sessionConfig;
     const finalQuestion = problem.description;
 
-    // Run all test cases (including hidden ones for scoring) if not yet run
+    // Run all test cases through the API. The server fetches hidden cases and only returns public details.
     let passedCount = runSummary?.passed ?? 0;
     let totalCount  = runSummary?.total  ?? testCases.length;
 
-    // If they haven't run tests yet, run them now
-    if (!runSummary) {
-      try {
-        const res  = await fetch("/api/code", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, language, test_cases: testCases }),
-        });
-        const data: RunResponse = await res.json();
-        if (res.ok && !data.error) {
-          setTestResults(data.results);
-          setRunSummary(data.summary);
-          setCompileError(data.compile_error);
-          passedCount = data.summary.passed;
-          totalCount  = data.summary.total;
-        }
-      } catch { /* scoring will use 0/0 */ }
+    try {
+      const res = await fetch("/api/code", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, language, problem_id: problem.problem_id }),
+      });
+      const data: RunResponse = await res.json();
+      if (res.ok && !data.error) {
+        setTestResults(data.results);
+        setRunSummary(data.summary);
+        setCompileError(data.compile_error);
+        passedCount = data.summary.passed;
+        totalCount  = data.summary.total;
+      } else {
+        setRunError(data.error ?? "Could not run hidden tests for scoring.");
+      }
+    } catch {
+      setRunError("Network error — could not reach the code execution service for final scoring.");
     }
 
     try {
       // Persist raw submission
-      await supabase.from("code_submission").insert({
+      const { error: submissionError } = await supabase.from("code_submission").insert({
         session_id: sessionId,
         question:   finalQuestion,
         code,
         language,
       });
+      if (submissionError) throw submissionError;
 
       // Create history row
-      const { data: hist } = await supabase
+      const { data: hist, error: historyError } = await supabase
         .from("history")
         .insert({
           session_id:   sessionId,
           question:     finalQuestion,
           answer:       code,
-          video_record: null,
         })
         .select("history_id")
         .single();
+      if (historyError) throw historyError;
 
       if (hist) {
         const prompt = buildCodingPrompt(
@@ -347,21 +371,24 @@ export default function CodeEditorPage() {
 
         if (aiRes.ok) {
           const raw    = await aiRes.json();
-          const scores = typeof raw.result === "string"
-            ? JSON.parse(raw.result)
-            : raw.result ?? raw;
+          const scores = parseJsonObject(raw.result ?? raw);
+          const correctness = numberOrNull(scores.correctness);
+          const timeComplexity = numberOrNull(scores.time_complexity);
+          const codeQuality = numberOrNull(scores.code_quality);
+          const totalScore = numberOrNull(scores.total_score);
 
-          await supabase.from("result_coding").insert({
+          const { error: codingResultError } = await supabase.from("result_coding").insert({
             history_id:      hist.history_id,
             session_id:      sessionId,
-            correctness:     scores.correctness     ?? null,
-            time_complexity: scores.time_complexity ?? null,
-            code_quality:    scores.code_quality    ?? null,
-            feedback:        scores.feedback        ?? null,
-            total_score:     scores.total_score     ?? null,
+            correctness,
+            time_complexity: timeComplexity,
+            code_quality:    codeQuality,
+            feedback:        typeof scores.feedback === "string" ? scores.feedback : null,
+            total_score:     totalScore,
           });
+          if (codingResultError) throw codingResultError;
 
-          setFeedback(scores.feedback ?? null);
+          setFeedback(typeof scores.feedback === "string" ? scores.feedback : null);
         }
       }
 
@@ -769,5 +796,13 @@ export default function CodeEditorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CodeEditorPage() {
+  return (
+    <Suspense fallback={<div className="flex h-full w-full items-center justify-center bg-gray-50 text-sm text-gray-500">Loading editor...</div>}>
+      <CodeEditorPageContent />
+    </Suspense>
   );
 }

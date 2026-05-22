@@ -10,7 +10,6 @@ const model = genAI.getGenerativeModel({
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
     // Analysis mode
     if (body.prompt) {
       const result = await model.generateContent(body.prompt);

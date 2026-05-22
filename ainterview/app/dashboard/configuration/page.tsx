@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  MessageSquare, Code, Layers, Video, Mic, CircleDot,
+  MessageSquare, Code, Layers, Video, Mic, Clock, Hash,
   ChevronRight, Check, Loader2,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
@@ -18,7 +18,8 @@ interface InterviewConfig {
   role:              string;
   cameraEnabled:     boolean;
   microphoneEnabled: boolean;
-  recordingEnabled:  boolean;
+  timeLimitMinutes:  number;
+  codingQuestionCount: number;
 }
 
 /*Static Data*/
@@ -37,8 +38,10 @@ const DIFFICULTY_LEVELS = [
 const DEVICE_SETTINGS = [
   { key: "cameraEnabled"     as const, label: "Camera",     description: "Enable webcam during the interview",  icon: Video     },
   { key: "microphoneEnabled" as const, label: "Microphone", description: "Enable voice input for your answers", icon: Mic       },
-  { key: "recordingEnabled"  as const, label: "Recording",  description: "Save this session to review later",   icon: CircleDot },
 ] as const;
+
+const TIME_LIMIT_OPTIONS = [10, 15, 20, 30, 45] as const;
+const CODING_COUNT_OPTIONS = [1, 2, 3, 4] as const;
 
 const ROLE_SUGGESTIONS = [
   "Software Engineer", "Frontend Developer", "Backend Developer",
@@ -86,15 +89,26 @@ export default function ConfigurationPage() {
   const router   = useRouter();
   const supabase = getSupabaseBrowserClient();
 
-  const [config, setConfig]           = useState<InterviewConfig>({ interviewType: "", difficulty: "", role: "", cameraEnabled: true, microphoneEnabled: true, recordingEnabled: false });
+  const [config, setConfig]           = useState<InterviewConfig>({
+    interviewType: "",
+    difficulty: "",
+    role: "",
+    cameraEnabled: true,
+    microphoneEnabled: true,
+    timeLimitMinutes: 15,
+    codingQuestionCount: 2,
+  });
   const [validationError, setValErr]  = useState("");
   const [isStarting, setIsStarting]   = useState(false);
+  const hasCoding = config.interviewType === "technical" || config.interviewType === "full";
 
   /*Validate*/
   const validate = (): string => {
     if (!config.interviewType) return "Please select an interview type.";
     if (!config.difficulty)    return "Please select a difficulty level.";
     if (!config.role.trim())   return "Please enter your target role.";
+    if (config.timeLimitMinutes < 5) return "Please choose a valid session time limit.";
+    if (hasCoding && config.codingQuestionCount < 1) return "Please choose at least one coding question.";
     return "";
   };
 
@@ -132,7 +146,8 @@ export default function ConfigurationPage() {
         role:    config.role.trim(),
         camera:  String(config.cameraEnabled),
         mic:     String(config.microphoneEnabled),
-        record:  String(config.recordingEnabled),
+        time_limit: String(config.timeLimitMinutes),
+        coding_count: String(hasCoding ? config.codingQuestionCount : 0),
       });
 
       router.push(`../interview/behavioral?${params}`);
@@ -146,7 +161,7 @@ export default function ConfigurationPage() {
 
   const selectType       = (id: string) => { setValErr(""); setConfig(p => ({ ...p, interviewType: id as InterviewType })); };
   const selectDifficulty = (id: string) => { setValErr(""); setConfig(p => ({ ...p, difficulty: id as Difficulty })); };
-  const toggleSetting    = (key: keyof InterviewConfig) => setConfig(p => ({ ...p, [key]: !p[key] }));
+  const toggleSetting    = (key: "cameraEnabled" | "microphoneEnabled") => setConfig(p => ({ ...p, [key]: !p[key] }));
 
   const selectedType = INTERVIEW_TYPES.find(t => t.id === config.interviewType);
   const selectedDiff = DIFFICULTY_LEVELS.find(d => d.id === config.difficulty);
@@ -227,7 +242,7 @@ export default function ConfigurationPage() {
 
           {/* Device Settings */}
           <Card>
-            <CardHeader title="Device Settings" subtitle="Control camera, mic and recording" />
+            <CardHeader title="Device Settings" subtitle="Control camera and microphone access" />
             <div className="flex flex-col divide-y divide-gray-100">
               {DEVICE_SETTINGS.map(({ key, label, description, icon: Icon }) => (
                 <div key={key} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
@@ -239,6 +254,60 @@ export default function ConfigurationPage() {
                   <Toggle label={label} checked={config[key] as boolean} onChange={() => toggleSetting(key)} />
                 </div>
               ))}
+            </div>
+          </Card>
+
+          {/* Session Settings */}
+          <Card>
+            <CardHeader title="Session Settings" subtitle="Choose the session length and coding workload" />
+            <div className="flex flex-col gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock size={14} className="text-gray-500" />
+                  <p className="text-[12.5px] font-semibold text-gray-900">Time Limit</p>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {TIME_LIMIT_OPTIONS.map(minutes => (
+                    <button
+                      key={minutes}
+                      type="button"
+                      onClick={() => { setValErr(""); setConfig(p => ({ ...p, timeLimitMinutes: minutes })); }}
+                      className={`rounded-lg border px-3 py-2 text-[12px] font-medium transition ${
+                        config.timeLimitMinutes === minutes
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-400"
+                      }`}
+                    >
+                      {minutes}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {hasCoding && (
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Hash size={14} className="text-gray-500" />
+                    <p className="text-[12.5px] font-semibold text-gray-900">Coding Questions</p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {CODING_COUNT_OPTIONS.map(count => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => { setValErr(""); setConfig(p => ({ ...p, codingQuestionCount: count })); }}
+                        className={`rounded-lg border px-3 py-2 text-[12px] font-medium transition ${
+                          config.codingQuestionCount === count
+                            ? "border-gray-900 bg-gray-900 text-white"
+                            : "border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-400"
+                        }`}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -270,9 +339,10 @@ export default function ConfigurationPage() {
                 { label: "Type",       value: selectedType?.name },
                 { label: "Role",       value: config.role.trim() || undefined },
                 { label: "Difficulty", value: selectedDiff?.name },
+                { label: "Time Limit",  value: `${config.timeLimitMinutes} min` },
+                ...(hasCoding ? [{ label: "Coding", value: `${config.codingQuestionCount} question${config.codingQuestionCount === 1 ? "" : "s"}` }] : []),
                 { label: "Camera",     value: config.cameraEnabled     ? "On" : "Off", active: config.cameraEnabled     },
                 { label: "Mic",        value: config.microphoneEnabled  ? "On" : "Off", active: config.microphoneEnabled },
-                { label: "Recording",  value: config.recordingEnabled   ? "On" : "Off", active: config.recordingEnabled  },
               ].map(row => (
                 <div key={row.label} className="flex justify-between items-center py-2 first:pt-0 last:pb-0">
                   <span className="text-xs text-gray-500">{row.label}</span>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
 
 /* Judge0 endpoint */
 const JUDGE0_URL = "https://ce.judge0.com";
@@ -9,8 +10,11 @@ const BASE_HEADERS = {
 
 /*Judge0 CE language IDs*/
 export const JUDGE0_LANGUAGE_IDS: Record<string, number> = {
+  javascript: 63,
+  typescript: 74,
   python:     71,   
   java:       62, 
+  go:         60,
   cpp:        54,   
   c:          50,  
 };
@@ -106,7 +110,6 @@ async function submitOne(
         source_code:      code,
         language_id:      languageId,
         stdin,
-        expected_output:  expectedOutput.trim(),
         cpu_time_limit:   3,      // seconds
         memory_limit:     128000, // KB
       }),
@@ -133,20 +136,40 @@ export async function POST(req: NextRequest) {
       language,          // string key e.g. "python"
       language_id,       // numeric override (optional)
       test_cases,        // TestCase[]
+      problem_id,
     }: {
       code: string;
       language?: string;
       language_id?: number;
-      test_cases: TestCase[];
+      test_cases?: TestCase[];
+      problem_id?: string;
     } = body;
 
     /* ── Validate ── */
     if (!code?.trim()) {
       return NextResponse.json({ error: "No code provided" }, { status: 400 });
     }
-    if (!test_cases?.length) {
+    let testCases = test_cases;
+    const shouldRedactCases = !testCases?.length && !!problem_id;
+
+    if (!testCases?.length && problem_id) {
+      const supabase = await createSupabaseServerClient();
+      const { data, error } = await supabase
+        .from("testcases")
+        .select("id, input, output, is_public")
+        .eq("problem_id", problem_id)
+        .order("id");
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      testCases = (data ?? []) as TestCase[];
+    }
+
+    if (!testCases?.length) {
       return NextResponse.json({ error: "No test cases provided" }, { status: 400 });
     }
+    const executableTestCases = testCases;
 
     // Resolve language ID
     const langId: number | undefined =
@@ -164,7 +187,7 @@ export async function POST(req: NextRequest) {
     let tokens: string[];
     try {
       tokens = await Promise.all(
-        test_cases.map((tc) =>
+        executableTestCases.map((tc) =>
           submitOne(code, langId, tc.input ?? "", tc.output ?? ""),
         ),
       );
@@ -199,13 +222,12 @@ export async function POST(req: NextRequest) {
     }
 
     /* ── Build per-case results ── */
-    const results: SingleResult[] = test_cases.map((tc, i) => {
+    const results: SingleResult[] = executableTestCases.map((tc, i) => {
       const p = polled[i];
       const actual = (p.stdout ?? "").trim();
       const expected = (tc.output ?? "").trim();
 
-      // Status 3 = Accepted (Judge0 matched expected_output), or we compare manually
-      const passed = p.statusId === 3 || actual === expected;
+      const passed = p.statusId === 3 && actual === expected;
 
       return {
         id:             tc.id,
@@ -229,7 +251,7 @@ export async function POST(req: NextRequest) {
       results.find((r) => r.statusId === 6)?.compile_output ?? null;
 
     return NextResponse.json({
-      results,
+      results: shouldRedactCases ? results.filter((r, i) => executableTestCases[i]?.is_public) : results,
       summary: {
         total:  results.length,
         passed: passCount,

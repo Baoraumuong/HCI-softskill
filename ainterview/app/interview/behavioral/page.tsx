@@ -1,7 +1,7 @@
 "use client";
 
 import React, {
-  useState, useEffect, useRef, useCallback,
+  Suspense, useState, useEffect, useRef, useCallback,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -66,9 +66,8 @@ declare global {
 
 const BEHAVIORAL_PHASE_SECONDS  = 5 * 60;
 const THEORETICAL_PHASE_SECONDS = 5 * 60;
-const SESSION_LIMIT_SECONDS     = 15 * 60;
-const WARNING_AT_SECONDS        = SESSION_LIMIT_SECONDS - 2 * 60;
-const CODING_PROBLEMS_TO_FETCH  = 3;
+const DEFAULT_SESSION_LIMIT_SECONDS = 15 * 60;
+const DEFAULT_CODING_PROBLEMS_TO_FETCH = 2;
 
 function getPhasePlan(type: InterviewType): Phase[] {
   switch (type) {
@@ -360,7 +359,7 @@ function useMediaPipePose(
 }
 
 /* ─── Main Component ──────────────────────────────────────── */
-export default function InterviewPage() {
+function InterviewPageContent() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const supabase     = getSupabaseBrowserClient();
@@ -372,13 +371,19 @@ export default function InterviewPage() {
     role:            searchParams.get("role")                      ?? "Software Engineer",
   };
   const cameraEnabled = searchParams.get("camera") !== "false";
-  const recordEnabled = searchParams.get("record") === "true";
+  const configuredSessionLimit = Number(searchParams.get("time_limit"));
+  const sessionLimitSeconds = Number.isFinite(configuredSessionLimit) && configuredSessionLimit > 0
+    ? configuredSessionLimit * 60
+    : DEFAULT_SESSION_LIMIT_SECONDS;
+  const configuredCodingCount = Number(searchParams.get("coding_count"));
+  const codingProblemsToFetch = Number.isFinite(configuredCodingCount) && configuredCodingCount > 0
+    ? Math.floor(configuredCodingCount)
+    : DEFAULT_CODING_PROBLEMS_TO_FETCH;
+  const warningAtSeconds = Math.max(0, sessionLimitSeconds - 2 * 60);
 
   const videoRef         = useRef<HTMLVideoElement>(null);
   const recognitionRef   = useRef<any>(null);
   const messagesEndRef   = useRef<HTMLDivElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const videoChunksRef   = useRef<Blob[]>([]);
   const phaseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Core state ── */
@@ -434,20 +439,13 @@ export default function InterviewPage() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (videoRef.current) videoRef.current.srcObject = stream;
-        if (recordEnabled) {
-          const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
-          recorder.ondataavailable = e => {
-            if (e.data.size > 0) videoChunksRef.current.push(e.data);
-          };
-          mediaRecorderRef.current = recorder;
-        }
       } catch {
         alert("Unable to access camera/microphone.");
       }
     };
     if (isCameraOn) startCamera();
     return () => { stream?.getTracks().forEach(t => t.stop()); };
-  }, [isCameraOn, recordEnabled]);
+  }, [isCameraOn]);
 
   /* ── Speech recognition ── */
   useEffect(() => {
@@ -486,8 +484,8 @@ export default function InterviewPage() {
     const timer = setInterval(() => {
       setInterviewTime(prev => {
         const next = prev + 1;
-        if (next >= WARNING_AT_SECONDS)    setShowWarning(true);
-        if (next >= SESSION_LIMIT_SECONDS) {
+        if (next >= warningAtSeconds) setShowWarning(true);
+        if (next >= sessionLimitSeconds) {
           clearInterval(timer);
           handleSessionEnd("timeout");
         }
@@ -520,7 +518,7 @@ export default function InterviewPage() {
 
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
-  const timeRemaining = SESSION_LIMIT_SECONDS - interviewTime;
+  const timeRemaining = Math.max(0, sessionLimitSeconds - interviewTime);
   const isUrgent      = timeRemaining <= 120;
 
   /* ── Advance phase ──
@@ -542,7 +540,8 @@ export default function InterviewPage() {
           const { data, error } = await supabase
             .from("problems")
             .select("problem_id, title, description, difficulty, languages")
-            .limit(CODING_PROBLEMS_TO_FETCH);
+            .ilike("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
+            .limit(codingProblemsToFetch);
 
           if (error) console.error("Error fetching coding problems:", error.message);
 
@@ -600,21 +599,13 @@ export default function InterviewPage() {
   /* ── Save Q&A + analyse ── */
   const saveQAAndAnalyze = useCallback(async (
     question: string, answer: string,
-    questionType: QuestionType, videoBlob?: Blob,
+    questionType: QuestionType,
   ) => {
     const { sessionId, role, level } = sessionConfig;
 
-    let videoPath: string | null = null;
-    if (videoBlob && videoBlob.size > 0) {
-      const { data: up, error: upErr } = await supabase.storage
-        .from("interview-recordings")
-        .upload(`${sessionId}/${Date.now()}.webm`, videoBlob, { contentType: "video/webm" });
-      if (!upErr && up) videoPath = up.path;
-    }
-
     const { data: histData, error: histErr } = await supabase
       .from("history")
-      .insert({ session_id: sessionId, question, answer, video_record: videoPath })
+      .insert({ session_id: sessionId, question, answer })
       .select("history_id")
       .single<HistoryRow>();
 
@@ -657,7 +648,6 @@ export default function InterviewPage() {
     setIsSessionEnded(true);
     setIsSaving(true);
     if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current);
-    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
     if (recognitionRef.current) recognitionRef.current.stop();
 
     const engagement = computeEngagementScore(postureMetrics);
@@ -694,10 +684,6 @@ export default function InterviewPage() {
       return;
     }
     setIsInterviewStarted(true);
-    if (mediaRecorderRef.current) {
-      videoChunksRef.current = [];
-      mediaRecorderRef.current.start(1000);
-    }
     const firstPhase     = phasePlan[0] as Phase;
     const questionType   = phaseToQuestionType(firstPhase);
     const firstMessage   = firstPhase === "behavioral"
@@ -742,11 +728,7 @@ export default function InterviewPage() {
       };
       setMessages(prev => [...prev, aiMsg]);
 
-      const blob = videoChunksRef.current.length > 0
-        ? new Blob(videoChunksRef.current, { type: "video/webm" }) : undefined;
-      videoChunksRef.current = [];
-
-      saveQAAndAnalyze(lastAiQuestion, userMsg.text, questionTypeNow, blob);
+      saveQAAndAnalyze(lastAiQuestion, userMsg.text, questionTypeNow);
     } catch (e) {
       console.error(e);
       alert("Failed to get AI response. Please try again.");
@@ -941,7 +923,7 @@ export default function InterviewPage() {
               </div>
               <p className="text-sm text-gray-500 max-w-[250px]">
                 Click <strong className="text-gray-300">Begin Interview</strong> to start.<br />
-                You have <strong className="text-gray-300">{formatTime(SESSION_LIMIT_SECONDS)}</strong>.
+                You have <strong className="text-gray-300">{formatTime(sessionLimitSeconds)}</strong>.
               </p>
               <div className="flex flex-col gap-1 text-[11px] text-gray-600">
                 {getPhasePlan(sessionConfig.interview_type)
@@ -1021,7 +1003,7 @@ export default function InterviewPage() {
             </div>
             {isListening && (
               <p className="absolute -top-6 left-4 text-[10px] text-blue-400 animate-pulse flex items-center gap-1">
-                <Mic size={10} /> Mic is recording
+                <Mic size={10} /> Mic is listening
               </p>
             )}
           </div>
@@ -1038,5 +1020,13 @@ export default function InterviewPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function InterviewPage() {
+  return (
+    <Suspense fallback={<div className="flex h-full w-full items-center justify-center bg-gray-50 text-sm text-gray-500">Loading interview...</div>}>
+      <InterviewPageContent />
+    </Suspense>
   );
 }
