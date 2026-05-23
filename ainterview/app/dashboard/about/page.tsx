@@ -97,7 +97,7 @@ export default function AboutPage() {
               {[
                 { label: "Status", value: "Perfect", active: true },
                 { label: "Models", value: "Gemini 2.5-flash" },
-                { label: "Progress", value: "70%" },
+                { label: "Progress", value: "96%" },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between items-center py-2 first:pt-0 last:pb-0">
                   <span className="text-xs text-gray-500">{row.label}</span>

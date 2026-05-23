@@ -121,6 +121,26 @@ Respond ONLY with valid JSON, no markdown:
 {"technical_accuracy":<0-40>,"role_relevance":<0-20>,"logical_flow":<0-20>,"conciseness":<0-10>,"communication_skill":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
 }
 
+function parseJsonObject(raw: unknown) {
+  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
+  if (typeof raw !== "string") return {};
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const text = (fenced ?? raw).trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return {};
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function numberOrNull(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function getAnalysisConfig(
   questionType: QuestionType,
   role: string, level: string,
@@ -622,20 +642,39 @@ function InterviewPageContent() {
       });
       if (!res.ok) throw new Error("Analysis API failed");
       const raw    = await res.json();
-      const scores = typeof raw.result === "string" ? JSON.parse(raw.result) : raw.result;
-
-      await supabase.from(table).insert({
+      const scores = parseJsonObject(raw.result ?? raw);
+      const baseResult = {
         history_id: histData.history_id,
         session_id: sessionId,
-        ...scores,
-      });
+        feedback: typeof scores.feedback === "string" ? scores.feedback : null,
+        total_score: numberOrNull(scores.total_score),
+      };
+
+      if (table === "result_communication") {
+        await supabase.from(table).insert({
+          ...baseResult,
+          role_relevance: numberOrNull(scores.role_relevance),
+          logical_flow: numberOrNull(scores.logical_flow),
+          conciseness: numberOrNull(scores.conciseness),
+          communication_skill: numberOrNull(scores.communication_skill),
+        });
+      } else {
+        await supabase.from(table).insert({
+          ...baseResult,
+          technical_accuracy: numberOrNull(scores.technical_accuracy),
+          role_relevance: numberOrNull(scores.role_relevance),
+          logical_flow: numberOrNull(scores.logical_flow),
+          conciseness: numberOrNull(scores.conciseness),
+          communication_skill: numberOrNull(scores.communication_skill),
+        });
+      }
 
       setQuestionResults(prev => [...prev, {
         questionText: question,
         answerText:   answer,
         questionType,
-        totalScore:   scores.total_score ?? null,
-        feedback:     scores.feedback    ?? null,
+        totalScore:   numberOrNull(scores.total_score),
+        feedback:     typeof scores.feedback === "string" ? scores.feedback : null,
       }]);
     } catch (e) {
       console.error("Analysis error:", e);
