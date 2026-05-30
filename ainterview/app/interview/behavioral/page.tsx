@@ -64,8 +64,6 @@ declare global {
   }
 }
 
-const BEHAVIORAL_PHASE_SECONDS  = 5 * 60;
-const THEORETICAL_PHASE_SECONDS = 5 * 60;
 const DEFAULT_SESSION_LIMIT_SECONDS = 15 * 60;
 const DEFAULT_CODING_PROBLEMS_TO_FETCH = 2;
 
@@ -77,10 +75,19 @@ function getPhasePlan(type: InterviewType): Phase[] {
   }
 }
 
-function phaseDuration(phase: Phase): number | null {
+function phaseDuration(
+  type: InterviewType,
+  phase: Phase,
+  sessionLimitSeconds: number,
+): number | null {
+  if (type !== "full") return null;
+
+  const behavioralSeconds = Math.floor(sessionLimitSeconds / 2);
+  const theoreticalSeconds = sessionLimitSeconds - behavioralSeconds;
+
   switch (phase) {
-    case "behavioral":  return BEHAVIORAL_PHASE_SECONDS;
-    case "theoretical": return THEORETICAL_PHASE_SECONDS;
+    case "behavioral":  return behavioralSeconds;
+    case "theoretical": return theoreticalSeconds;
     default:            return null;
   }
 }
@@ -424,7 +431,9 @@ function InterviewPageContent() {
   /* ── Phase state machine ── */
   const phasePlan = getPhasePlan(sessionConfig.interview_type);
   const [phaseIndex,    setPhaseIndex]    = useState(0);
-  const [phaseTimeLeft, setPhaseTimeLeft] = useState<number | null>(phaseDuration(phasePlan[0]));
+  const [phaseTimeLeft, setPhaseTimeLeft] = useState<number | null>(
+    phaseDuration(sessionConfig.interview_type, phasePlan[0], sessionLimitSeconds),
+  );
   const currentPhase = phasePlan[phaseIndex] as Phase;
 
   /* ── Q tracking ── */
@@ -507,39 +516,51 @@ function InterviewPageContent() {
         if (next >= warningAtSeconds) setShowWarning(true);
         if (next >= sessionLimitSeconds) {
           clearInterval(timer);
-          handleSessionEnd("timeout");
+          if (sessionConfig.interview_type === "behavioral") {
+            handleSessionEnd("timeout");
+          } else if (sessionConfig.interview_type === "technical" && currentPhase !== "coding") {
+            advancePhase();
+          }
         }
         return next;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [isInterviewStarted, isSessionEnded]);
+  }, [
+    isInterviewStarted,
+    isSessionEnded,
+    currentPhase,
+    sessionConfig.interview_type,
+    sessionLimitSeconds,
+    warningAtSeconds,
+  ]);
 
   /* ── Phase timer ── */
   useEffect(() => {
     if (!isInterviewStarted || isSessionEnded) return;
-    const duration = phaseDuration(currentPhase);
+    const duration = phaseDuration(sessionConfig.interview_type, currentPhase, sessionLimitSeconds);
     if (duration == null) return;
     phaseTimerRef.current = setTimeout(() => { advancePhase(); }, duration * 1000);
     return () => { if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current); };
-  }, [isInterviewStarted, phaseIndex, isSessionEnded]);
+  }, [isInterviewStarted, phaseIndex, isSessionEnded, sessionConfig.interview_type, sessionLimitSeconds]);
 
   /* ── Phase countdown ── */
   useEffect(() => {
     if (!isInterviewStarted || isSessionEnded) return;
-    const duration = phaseDuration(currentPhase);
+    const duration = phaseDuration(sessionConfig.interview_type, currentPhase, sessionLimitSeconds);
     if (duration == null) { setPhaseTimeLeft(null); return; }
     setPhaseTimeLeft(duration);
     const tick = setInterval(() => {
       setPhaseTimeLeft(prev => (prev != null ? Math.max(0, prev - 1) : null));
     }, 1000);
     return () => clearInterval(tick);
-  }, [isInterviewStarted, phaseIndex, isSessionEnded]);
+  }, [isInterviewStarted, phaseIndex, isSessionEnded, sessionConfig.interview_type, sessionLimitSeconds]);
 
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
   const timeRemaining = Math.max(0, sessionLimitSeconds - interviewTime);
   const isUrgent      = timeRemaining <= 120;
+  const showSessionTimer = currentPhase !== "coding";
 
   /* ── Advance phase ──
      Uses ref for codingProblems to avoid stale closure bug.
@@ -797,7 +818,7 @@ function InterviewPageContent() {
           }
 
           {/* Global timer */}
-          {isInterviewStarted && !isSessionEnded && (
+          {isInterviewStarted && !isSessionEnded && showSessionTimer && (
             <div className={`absolute top-4 left-4 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold backdrop-blur-md shadow-lg
               ${isUrgent ? "bg-red-500/90 text-white animate-pulse"
                 : showWarning ? "bg-amber-500/90 text-white"
@@ -814,7 +835,7 @@ function InterviewPageContent() {
           )}
 
           {/* Warning */}
-          {showWarning && !isSessionEnded && (
+          {showWarning && !isSessionEnded && showSessionTimer && (
             <div className="absolute top-14 left-4 right-4 flex items-center gap-2 rounded-xl bg-amber-500/90 px-4 py-2.5 text-sm font-medium text-white backdrop-blur-md shadow-lg">
               <AlertTriangle size={16} />
               {isUrgent
@@ -970,7 +991,9 @@ function InterviewPageContent() {
                   .map((p, i) => (
                     <span key={i} className="capitalize">
                       {i + 1}. {p} phase
-                      {phaseDuration(p) != null ? ` (${formatTime(phaseDuration(p)!)})` : ""}
+                      {phaseDuration(sessionConfig.interview_type, p, sessionLimitSeconds) != null
+                        ? ` (${formatTime(phaseDuration(sessionConfig.interview_type, p, sessionLimitSeconds)!)})`
+                        : ""}
                     </span>
                   ))}
               </div>
