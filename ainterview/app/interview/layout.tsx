@@ -1,15 +1,9 @@
 "use client";
 
-import { JetBrains_Mono } from "next/font/google";
 import "../globals.css";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {TrainFront} from "lucide-react"
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-mono",
-});
 
 export default function InterviewLayout({
   children,
@@ -44,7 +38,7 @@ export default function InterviewLayout({
 
   return (
     <div
-      className={`${jetbrainsMono.variable} flex h-screen flex-col overflow-hidden bg-gray-50 text-gray-900 antialiased`}
+      className="flex h-screen flex-col overflow-hidden bg-gray-50 text-gray-900 antialiased"
     >
       {/* ── Header ── */}
       <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 shadow-sm">

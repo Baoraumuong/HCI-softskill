@@ -3,17 +3,10 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useLogout } from "@/hooks/useLogout";
+import { useLogout } from "@/app/hooks/useLogout";
 import { getSupabaseBrowserClient } from "../../lib/supabase/browser-client";
 import type { Tables } from "@/database.types"; 
-import {
-  MonitorPlay,
-  History,
-  LogOut,
-  Loader2,
-  TrainFront,
-  Info,
-} from "lucide-react";
+import {MonitorPlay, History, LogOut, Loader2,TrainFront, Info} from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard/configuration", label: "Setup Interview", icon: MonitorPlay },
@@ -21,7 +14,6 @@ const NAV_ITEMS = [
   { href: "/dashboard/about", label: "About", icon: Info },
 ] as const;
 
-// Type-safe alias for the users table row
 type UserProfile = Tables<"users">;
 
 export default function Sidebar() {

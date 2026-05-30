@@ -40,7 +40,7 @@ const DEVICE_SETTINGS = [
   { key: "microphoneEnabled" as const, label: "Microphone", description: "Enable voice input for your answers", icon: Mic       },
 ] as const;
 
-const TIME_LIMIT_OPTIONS = [10, 15, 20, 30, 45] as const;
+const TIME_LIMIT_OPTIONS = [2, 10, 15, 20, 30] as const;
 const CODING_COUNT_OPTIONS = [1, 2, 3, 4] as const;
 
 const ROLE_SUGGESTIONS = [
@@ -107,7 +107,7 @@ export default function ConfigurationPage() {
     if (!config.interviewType) return "Please select an interview type.";
     if (!config.difficulty)    return "Please select a difficulty level.";
     if (!config.role.trim())   return "Please enter your target role.";
-    if (config.timeLimitMinutes < 5) return "Please choose a valid session time limit.";
+    if (config.timeLimitMinutes < 2) return "Please choose a valid session time limit.";
     if (hasCoding && config.codingQuestionCount < 1) return "Please choose at least one coding question.";
     return "";
   };

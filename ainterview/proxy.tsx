@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isSupabaseNetworkError } from "./app/lib/supabase/errors";
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -31,8 +32,16 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  // Refresh the user's session if needed
-  await supabase.auth.getUser();
+  // Refresh the user's session if needed.
+  try {
+    await supabase.auth.getUser();
+  } catch (error) {
+    if (!isSupabaseNetworkError(error)) {
+      throw error;
+    }
+
+    console.warn("[proxy] Supabase is unreachable. Skipping session refresh.");
+  }
 
   return supabaseResponse;
 }

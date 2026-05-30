@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
+import {
+  isSupabaseNetworkError,
+  supabaseUnavailableMessage,
+} from "@/app/lib/supabase/errors";
 
 /* Judge0 endpoint */
 const JUDGE0_URL = "https://ce.judge0.com";
@@ -153,12 +157,27 @@ export async function POST(req: NextRequest) {
     const shouldRedactCases = !testCases?.length && !!problem_id;
 
     if (!testCases?.length && problem_id) {
-      const supabase = await createSupabaseServerClient();
-      const { data, error } = await supabase
-        .from("testcases")
-        .select("id, input, output, is_public")
-        .eq("problem_id", problem_id)
-        .order("id");
+      let queryResult;
+
+      try {
+        const supabase = await createSupabaseServerClient();
+        queryResult = await supabase
+          .from("testcases")
+          .select("id, input, output, is_public")
+          .eq("problem_id", problem_id)
+          .order("id");
+      } catch (error) {
+        if (isSupabaseNetworkError(error)) {
+          return NextResponse.json(
+            { error: supabaseUnavailableMessage() },
+            { status: 503 },
+          );
+        }
+
+        throw error;
+      }
+
+      const { data, error } = queryResult;
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1,10 +1,5 @@
 import React from "react";
-import { 
-  Target, 
-  BrainCircuit,
-  Sparkles, 
-  Mail 
-} from "lucide-react";
+import { Target, BrainCircuit, Mail } from "lucide-react";
 
 /* Static Data */
 const CORE_FEATURES = [
