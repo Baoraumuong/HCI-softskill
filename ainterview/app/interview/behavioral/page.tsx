@@ -412,6 +412,7 @@ function InterviewPageContent() {
   const recognitionRef   = useRef<any>(null);
   const messagesEndRef   = useRef<HTMLDivElement>(null);
   const phaseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const phaseTransitioningRef = useRef(false);
 
   /* ── Core state ── */
   const [isCameraOn,         setIsCameraOn]         = useState(cameraEnabled);
@@ -518,7 +519,11 @@ function InterviewPageContent() {
           clearInterval(timer);
           if (sessionConfig.interview_type === "behavioral") {
             handleSessionEnd("timeout");
-          } else if (sessionConfig.interview_type === "technical" && currentPhase !== "coding") {
+          } else if (
+            (sessionConfig.interview_type === "technical" ||
+              sessionConfig.interview_type === "full") &&
+            currentPhase !== "coding"
+          ) {
             advancePhase();
           }
         }
@@ -566,18 +571,23 @@ function InterviewPageContent() {
      Uses ref for codingProblems to avoid stale closure bug.
   ── */
   const advancePhase = useCallback(async () => {
+    if (phaseTransitioningRef.current) return;
+    phaseTransitioningRef.current = true;
+
     setPhaseIndex(prev => {
       const nextIndex = prev + 1;
       const nextPhase = phasePlan[nextIndex] as Phase;
 
       if (!nextPhase || nextPhase === "ended") {
+        phaseTransitioningRef.current = false;
         handleSessionEnd("manual");
         return prev;
       }
 
       // Schedule side effects outside the state updater
       setTimeout(async () => {
-        if (nextPhase === "coding") {
+        try {
+          if (nextPhase === "coding") {
           const { data, error } = await supabase
             .from("problems")
             .select("problem_id, title, description, difficulty, languages")
@@ -602,8 +612,8 @@ function InterviewPageContent() {
           };
           setMessages(prev => [...prev, transitionMsg]);
 
-          if (problems.length > 0) openCodeEditorForProblem(problems[0]);
-        } else {
+          if (problems.length > 0) openCodeEditorForProblem(problems[0], "same-tab");
+          } else {
           const phaseLabel = nextPhase === "theoretical" ? "technical" : nextPhase;
           const transitionMsg: Message = {
             id:           Date.now().toString(),
@@ -612,7 +622,10 @@ function InterviewPageContent() {
             timestamp:    new Date(),
             questionType: phaseToQuestionType(nextPhase),
           };
-          setMessages(prev => [...prev, transitionMsg]);
+            setMessages(prev => [...prev, transitionMsg]);
+          }
+        } finally {
+          phaseTransitioningRef.current = false;
         }
       }, 0);
 
@@ -621,7 +634,10 @@ function InterviewPageContent() {
   }, [phasePlan, supabase]);
 
   /* ── Open code editor ── */
-  const openCodeEditorForProblem = (problem: CodingProblem) => {
+  const openCodeEditorForProblem = (
+    problem: CodingProblem,
+    target: "new-tab" | "same-tab" = "new-tab",
+  ) => {
     const params = new URLSearchParams({
       session:    sessionConfig.sessionId,
       type:       sessionConfig.interview_type,
@@ -629,7 +645,12 @@ function InterviewPageContent() {
       role:       sessionConfig.role,
       problem_id: problem.problem_id,
     });
-    window.open(`/interview/code-editor?${params}`, "_blank", "noopener");
+    const url = `/interview/code-editor?${params}`;
+    if (target === "same-tab") {
+      router.push(url);
+      return;
+    }
+    window.open(url, "_blank", "noopener");
   };
 
   const openCodeEditorCurrent = () => {
