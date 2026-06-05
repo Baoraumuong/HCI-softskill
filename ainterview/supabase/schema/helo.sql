@@ -7,7 +7,7 @@ CREATE TABLE users (
     -- Removed 'password' as Supabase Auth handles this securely under the hood
 );
 
--- 2. Problems Table (From the previous setup)
+-- 2. Problems Table 
 CREATE TABLE problems (
     problem_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,

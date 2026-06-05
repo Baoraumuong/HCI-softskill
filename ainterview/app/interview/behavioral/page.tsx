@@ -524,7 +524,7 @@ function InterviewPageContent() {
               sessionConfig.interview_type === "full") &&
             currentPhase !== "coding"
           ) {
-            advancePhase();
+            startCodingPhase("same-tab");
           }
         }
         return next;
@@ -566,6 +566,56 @@ function InterviewPageContent() {
   const timeRemaining = Math.max(0, sessionLimitSeconds - interviewTime);
   const isUrgent      = timeRemaining <= 120;
   const showSessionTimer = currentPhase !== "coding";
+  const shouldEndButtonOpenCoding =
+    (sessionConfig.interview_type === "technical" ||
+      sessionConfig.interview_type === "full") &&
+    currentPhase !== "coding";
+
+  async function startCodingPhase(target: "new-tab" | "same-tab" = "same-tab") {
+    if (phaseTransitioningRef.current) return;
+    phaseTransitioningRef.current = true;
+
+    try {
+      if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current);
+
+      const codingPhaseIndex = phasePlan.indexOf("coding");
+      if (codingPhaseIndex === -1) {
+        handleSessionEnd("manual");
+        return;
+      }
+
+      setPhaseIndex(codingPhaseIndex);
+      setPhaseTimeLeft(null);
+
+      const { data, error } = await supabase
+        .from("problems")
+        .select("problem_id, title, description, difficulty, languages")
+        .ilike("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
+        .limit(codingProblemsToFetch);
+
+      if (error) console.error("Error fetching coding problems:", error.message);
+
+      const problems = (data ?? []) as CodingProblem[];
+      codingProblemsRef.current = problems;
+      setCodingProblems(problems);
+      setCodingIndex(0);
+
+      const transitionMsg: Message = {
+        id:           Date.now().toString(),
+        sender:       "ai",
+        text:         problems.length > 0
+          ? `Great work! We're now moving to the coding section. I'll open the code editor for you.`
+          : `Moving to the coding section - couldn't find problems in the database. Let's continue with verbal discussion.`,
+        timestamp:    new Date(),
+        questionType: "coding",
+      };
+      setMessages(prev => [...prev, transitionMsg]);
+
+      if (problems.length > 0) openCodeEditorForProblem(problems[0], target);
+    } finally {
+      phaseTransitioningRef.current = false;
+    }
+  }
 
   /* ── Advance phase ──
      Uses ref for codingProblems to avoid stale closure bug.
@@ -656,6 +706,19 @@ function InterviewPageContent() {
   const openCodeEditorCurrent = () => {
     const problem = codingProblemsRef.current[codingIndex] ?? codingProblems[codingIndex];
     if (problem) openCodeEditorForProblem(problem);
+  };
+
+  const handleEndInterviewClick = () => {
+    if (
+      (sessionConfig.interview_type === "technical" ||
+        sessionConfig.interview_type === "full") &&
+      currentPhase !== "coding"
+    ) {
+      startCodingPhase("same-tab");
+      return;
+    }
+
+    handleSessionEnd("manual");
   };
 
   /* ── Save Q&A + analyse ── */
@@ -917,11 +980,15 @@ function InterviewPageContent() {
             </button>
             {isInterviewStarted && !isSessionEnded && (
               <button
-                onClick={() => handleSessionEnd("manual")}
+                onClick={handleEndInterviewClick}
                 disabled={isSaving}
                 className="rounded-full bg-red-600/80 hover:bg-red-600 text-white text-xs font-semibold px-4 py-2 transition disabled:opacity-50"
               >
-                {isSaving ? "Saving…" : "End Interview"}
+                {isSaving
+                  ? "Saving..."
+                  : shouldEndButtonOpenCoding
+                    ? "Start Coding"
+                    : "End Interview"}
               </button>
             )}
           </div>
