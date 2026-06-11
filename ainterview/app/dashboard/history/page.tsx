@@ -13,7 +13,7 @@
  *     result_theoretical = theoretical, result_coding = coding).
  */
 
-import React, { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, type ElementType } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ChevronDown, ChevronRight,
@@ -87,6 +87,11 @@ interface QAWithResult {
   result_theoretical?:   ResultTheoretical;
   result_coding?:        ResultCoding;
 }
+
+type ResultKey = keyof Pick<
+  QAWithResult,
+  "result_communication" | "result_theoretical" | "result_coding"
+>;
 
 /* ─────────────────────────────────────────────────────────────
    HELPERS
@@ -206,10 +211,10 @@ function OverallAnalysisPanel({
   const theoreticalItems = qaItems.filter(q => q.result_theoretical);
   const codingItems      = qaItems.filter(q => q.result_coding);
 
-  const avg = (items: QAWithResult[], key: "result_communication" | "result_theoretical" | "result_coding") => {
-    const scored = items.filter(q => (q[key] as any)?.total_score != null);
+  const avg = (items: QAWithResult[], key: ResultKey) => {
+    const scored = items.filter(q => q[key]?.total_score != null);
     if (!scored.length) return null;
-    return Math.round(scored.reduce((a, q) => a + ((q[key] as any).total_score ?? 0), 0) / scored.length);
+    return Math.round(scored.reduce((a, q) => a + (q[key]?.total_score ?? 0), 0) / scored.length);
   };
 
   const behavioralAvg  = avg(behavioralItems,  "result_communication");
@@ -512,7 +517,7 @@ function QACard({
 ───────────────────────────────────────────────────────────── */
 function StatCard({
   icon: Icon, label, value, sub,
-}: { icon: React.ElementType; label: string; value: string; sub?: string }) {
+}: { icon: ElementType; label: string; value: string; sub?: string }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex items-start gap-3">
       <div className="flex items-center justify-center w-9 h-9 rounded-md bg-gray-100 text-gray-500 shrink-0">
@@ -682,7 +687,7 @@ function HistoryPageContent() {
         <p className="text-sm font-semibold text-gray-700">No sessions yet</p>
         <p className="text-xs text-gray-400 mt-1">Complete an interview to see your results here.</p>
       </div>
-      <button onClick={() => router.push("/dashboard/interview")}
+      <button onClick={() => router.push("/dashboard/configuration")}
         className="flex items-center gap-2 mt-2 rounded-lg bg-gray-900 text-white text-xs font-semibold px-4 py-2.5 hover:bg-gray-800 transition">
         Start your first interview <ChevronRight size={14} />
       </button>

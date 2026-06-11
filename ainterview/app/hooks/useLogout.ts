@@ -1,15 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
+import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 
 export function useLogout() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  );
+  const supabase = getSupabaseBrowserClient();
 
   const logout = async () => {
     try {
@@ -20,8 +17,9 @@ export function useLogout() {
 
       // Force full reload so server session is re-evaluated
       window.location.href = "/";
-    } catch (error: any) {
-      console.error("Error logging out:", error.message);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error("Error logging out:", message);
     } finally {
       setIsLoggingOut(false);
     }

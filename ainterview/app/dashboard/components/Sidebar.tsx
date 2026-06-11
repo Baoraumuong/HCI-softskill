@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLogout } from "@/app/hooks/useLogout";
-import { getSupabaseBrowserClient } from "../../lib/supabase/browser-client";
+import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 import type { Tables } from "@/database.types"; 
-import {MonitorPlay, History, LogOut, Loader2,TrainFront, Info} from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
+import { MonitorPlay, History, LogOut, Loader2, Info } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard/configuration", label: "Setup Interview", icon: MonitorPlay },
@@ -23,7 +24,6 @@ export default function Sidebar() {
   /* ─── Dynamic User State ───────────────────────────────── */
   const [user, setUser] = useState({
     name: "Loading...",
-    email: "",
   });
 
   useEffect(() => {
@@ -32,9 +32,9 @@ export default function Sidebar() {
     const fetchUserProfile = async (userId: string) => {
       const { data, error } = await supabase
         .from("users")
-        .select("user_name, email")
+        .select("user_name")
         .eq("user_id", userId)
-        .single<Pick<UserProfile, "user_name" | "email">>();
+        .single<Pick<UserProfile, "user_name">>();
 
       if (error) {
         console.error("Failed to fetch user profile:", error.message);
@@ -45,7 +45,6 @@ export default function Sidebar() {
 
       setUser({
         name: data.user_name || "User",
-        email: data.email || "",
       });
     };
 
@@ -78,7 +77,6 @@ export default function Sidebar() {
         // Reset state when logged out
         setUser({
           name: "Loading...",
-          email: "",
         });
       }
     });
@@ -99,16 +97,7 @@ export default function Sidebar() {
     <aside className="w-[220px] min-w-[220px] h-screen sticky top-0 bg-white border-r border-gray-200 flex flex-col font-sans shrink-0 z-10">
       {/* ── Brand / Logo ── */}
       <div className="flex items-center gap-2.5 py-5 px-4 border-b border-gray-100">
-        <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center shrink-0 shadow-sm">
-          <TrainFront
-            size={18}
-            strokeWidth={2.5}
-            className="fill-gray-900"
-          />
-        </div>
-        <span className="text-[14.5px] font-semibold text-gray-900 tracking-tight">
-          AInterview
-        </span>
+        <BrandMark />
       </div>
 
       {/* ── Navigation ── */}

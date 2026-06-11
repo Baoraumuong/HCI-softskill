@@ -1,38 +1,21 @@
-import React from "react";
 import { Target, BrainCircuit, Mail } from "lucide-react";
+import { Card, CardHeader, PageHeader, SectionLabel } from "@/app/dashboard/components/DashboardUI";
 
 /* Static Data */
 const CORE_FEATURES = [
-  { id: "ai", name: "AI-Powered Feedback", description: "Get insights on your answes.", icon: BrainCircuit },
+  { id: "ai", name: "AI-powered feedback", description: "Get practical insights on your answers.", icon: BrainCircuit },
   { id: "realistic", name: "Realistic Environments", description: "Simulated high-pressure scenarios to build actual confidence.", icon: Target }
 ] as const;
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-3">{children}</p>;
-}
-
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`bg-white border border-gray-200 rounded-xl p-5 shadow-sm ${className}`}>{children}</div>;
-}
-
-function CardHeader({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="text-[13px] font-semibold text-gray-900 mb-0.5">{title}</h2>
-      <p className="text-[11.5px] text-gray-500">{subtitle}</p>
-    </div>
-  );
-}
 
 /* Page*/
 export default function AboutPage() {
   return (
     <div className="animate-in fade-in duration-500">
-      <header className="mb-8">
-        <p className="text-[10.5px] font-bold tracking-[0.09em] uppercase text-red-800 mb-1.5">About Platform</p>
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Empowering your career journey</h1>
-        <p className="text-[13px] text-gray-500">Learn more about my project.</p>
-      </header>
+      <PageHeader
+        eyebrow="About Platform"
+        title="Empowering your career journey"
+        subtitle="Learn more about this project."
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
 
@@ -45,10 +28,10 @@ export default function AboutPage() {
             />
             <div className="text-[13px] leading-relaxed text-gray-600 space-y-4">
               <p>
-                Hi!
+                AInterview helps candidates rehearse technical and behavioral interviews in a focused, repeatable way.
               </p>
               <p>
-                LEarninG ReaCt by creating a platform offering Realistic mock interviews leveraged with AI.
+                The goal is simple: make practice sessions feel realistic, capture useful signals, and turn each answer into feedback you can act on.
               </p>
             </div>
           </Card>
@@ -57,7 +40,7 @@ export default function AboutPage() {
           <Card>
             <CardHeader 
               title="Core Technology" 
-              subtitle="INSANE" 
+              subtitle="What powers the experience" 
             />
             <div className="flex flex-col gap-2">
               {CORE_FEATURES.map((feature) => (
@@ -90,9 +73,9 @@ export default function AboutPage() {
             </div>
             <div className="flex flex-col divide-y divide-gray-100">
               {[
-                { label: "Status", value: "Perfect", active: true },
+                { label: "Status", value: "Available", active: true },
                 { label: "Models", value: "Gemini 2.5-flash" },
-                { label: "Progress", value: "96%" },
+                { label: "Progress", value: "Active development" },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between items-center py-2 first:pt-0 last:pb-0">
                   <span className="text-xs text-gray-500">{row.label}</span>

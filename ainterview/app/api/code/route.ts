@@ -50,6 +50,10 @@ interface SingleResult {
   compile_output: string | null;
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /* ─── Poll a single submission until it finishes ──────────── */
 async function pollToken(
   token: string,
@@ -210,8 +214,8 @@ export async function POST(req: NextRequest) {
           submitOne(code, langId, tc.input ?? "", tc.output ?? ""),
         ),
       );
-    } catch (err: any) {
-      if (err.message === "RATE_LIMITED") {
+    } catch (err: unknown) {
+      if (getErrorMessage(err) === "RATE_LIMITED") {
         return NextResponse.json(
           { error: "Rate limited by Judge0. Please wait ~10 seconds and try again." },
           { status: 429 },
@@ -224,14 +228,15 @@ export async function POST(req: NextRequest) {
     let polled: Awaited<ReturnType<typeof pollToken>>[];
     try {
       polled = await Promise.all(tokens.map((t) => pollToken(t)));
-    } catch (err: any) {
-      if (err.message === "RATE_LIMITED") {
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      if (message === "RATE_LIMITED") {
         return NextResponse.json(
           { error: "Rate limited while polling Judge0." },
           { status: 429 },
         );
       }
-      if (err.message === "EXECUTION_TIMEOUT") {
+      if (message === "EXECUTION_TIMEOUT") {
         return NextResponse.json(
           { error: "Execution timed out. Judge0 is busy — try again in a moment." },
           { status: 504 },

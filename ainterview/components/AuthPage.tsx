@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 
 type AuthPageProps = {
@@ -8,8 +7,6 @@ type AuthPageProps = {
   intro: string;
   steps: string[];
   children: ReactNode;
-  backHref?: string;
-  backLabel?: string;
 };
 
 export function AuthPage({

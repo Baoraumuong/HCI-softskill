@@ -3,7 +3,8 @@
 import "../globals.css";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {TrainFront} from "lucide-react"
+import { Clock, StopCircle } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
 
 export default function InterviewLayout({
   children,
@@ -44,16 +45,7 @@ export default function InterviewLayout({
       <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 shadow-sm">
         {/* Left — logo + wordmark */}
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-gray-900 text-white rounded-lg flex items-center justify-center shrink-0 shadow-sm">
-              <TrainFront
-                size={18}
-                strokeWidth={2.5}
-                className="fill-gray-900"
-              />
-          </div>
-          <span className="text-[13px] font-semibold tracking-tight text-gray-900">
-            AInterview
-          </span>
+          <BrandMark />
 
           <span className="ml-0.5 hidden border-l border-gray-200 pl-2.5 text-[11px] text-gray-500 sm:block">
             Live interview
@@ -64,19 +56,7 @@ export default function InterviewLayout({
         <div className="flex items-center gap-2">
           {/* Timer */}
           <div className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1">
-            <svg
-              className="h-3 w-3 text-gray-400"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <circle cx="8" cy="8" r="6.5" />
-              <polyline
-                points="8,4.5 8,8 10.5,9.5"
-                strokeLinecap="round"
-              />
-            </svg>
+            <Clock size={12} className="text-gray-400" />
 
             <span className="font-mono text-[12px] tabular-nums text-gray-700">
               {mounted ? fmt(seconds) : "00:00:00"}
@@ -88,13 +68,7 @@ export default function InterviewLayout({
             onClick={handleEnd}
             className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1 text-[12px] font-semibold text-white shadow-sm transition hover:bg-red-500 active:scale-[0.97]"
           >
-            <svg
-              className="h-3 w-3"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-            >
-              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3 4H5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" />
-            </svg>
+            <StopCircle size={12} />
             End Session
           </button>
         </div>

@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   MessageSquare, Code, Layers, Video, Mic, Clock, Hash,
   ChevronRight, Check, Loader2,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
+import { Card, CardHeader, PageHeader, SectionLabel } from "@/app/dashboard/components/DashboardUI";
 
 /* ─── Types ──────────────────────────────────────────────── */
 type InterviewType = "behavioral" | "technical" | "full" | "";
@@ -48,24 +49,6 @@ const ROLE_SUGGESTIONS = [
   "Full Stack Developer", "Data Engineer", "DevOps Engineer",
   "Product Manager", "Data Scientist",
 ];
-
-/* UI Pieces*/
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-3">{children}</p>;
-}
-
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`bg-white border border-gray-200 rounded-xl p-5 shadow-sm ${className}`}>{children}</div>;
-}
-
-function CardHeader({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="text-[13px] font-semibold text-gray-900 mb-0.5">{title}</h2>
-      <p className="text-[11.5px] text-gray-500">{subtitle}</p>
-    </div>
-  );
-}
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
   return (
@@ -150,7 +133,7 @@ export default function ConfigurationPage() {
         coding_count: String(hasCoding ? config.codingQuestionCount : 0),
       });
 
-      router.push(`../interview/behavioral?${params}`);
+      router.push(`/interview/behavioral?${params}`);
     } catch (e) {
       console.error(e);
       setValErr("Unexpected error. Please try again.");
@@ -169,11 +152,11 @@ export default function ConfigurationPage() {
 
   return (
     <div className="animate-in fade-in duration-500">
-      <header className="mb-8">
-        <p className="text-[10.5px] font-bold tracking-[0.09em] uppercase text-red-800 mb-1.5">Interview Setup</p>
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight mb-1">Configure your session</h1>
-        <p className="text-[13px] text-gray-500">Choose a type, difficulty and devices, then start.</p>
-      </header>
+      <PageHeader
+        eyebrow="Interview Setup"
+        title="Configure your session"
+        subtitle="Choose a type, difficulty and devices, then start."
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
 

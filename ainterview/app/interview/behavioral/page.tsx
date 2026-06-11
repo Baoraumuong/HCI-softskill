@@ -1,7 +1,7 @@
 "use client";
 
-import React, {
-  Suspense, useState, useEffect, useRef, useCallback,
+import {
+  Suspense, useState, useEffect, useRef, useCallback, type RefObject,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -57,10 +57,58 @@ interface PostureMetrics {
   lastStatus:    "in_frame_upright" | "in_frame_slouched" | "out_of_frame";
 }
 
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: {
+      isFinal: boolean;
+      [index: number]: {
+        transcript: string;
+      };
+    };
+  };
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+interface PoseLandmark {
+  x: number;
+  y: number;
+  z?: number;
+  visibility?: number;
+}
+
+interface PoseResults {
+  poseLandmarks?: PoseLandmark[];
+}
+
+interface PoseInstance {
+  setOptions: (options: Record<string, unknown>) => void;
+  onResults: (callback: (results: PoseResults) => void) => void;
+  send: (input: { image: HTMLVideoElement }) => Promise<void>;
+  close?: () => void;
+}
+
+type PoseConstructor = new (config: { locateFile: (file: string) => string }) => PoseInstance;
+
 declare global {
   interface Window {
-    webkitSpeechRecognition: any;
-    SpeechRecognition: any;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    Pose?: PoseConstructor;
   }
 }
 
@@ -299,12 +347,12 @@ function PerformancePanel({
 
 /* ─── MediaPipe Pose Hook ─────────────────────────────────── */
 function useMediaPipePose(
-  videoRef: React.RefObject<HTMLVideoElement | null>,
+  videoRef: RefObject<HTMLVideoElement | null>,
   enabled: boolean,
   onMetricsUpdate: (update: (prev: PostureMetrics) => PostureMetrics) => void,
   onStatusChange: (status: PostureMetrics["lastStatus"]) => void,
 ) {
-  const poseRef    = useRef<any>(null);
+  const poseRef    = useRef<PoseInstance | null>(null);
   const rafRef     = useRef<number>(0);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -314,7 +362,7 @@ function useMediaPipePose(
     let destroyed = false;
 
     const loadAndRun = async () => {
-      if (!(window as any).Pose) {
+      if (!window.Pose) {
         await new Promise<void>((resolve, reject) => {
           const s = document.createElement("script");
           s.src = "https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js";
@@ -324,7 +372,8 @@ function useMediaPipePose(
       }
       if (destroyed) return;
 
-      const Pose = (window as any).Pose;
+      const Pose = window.Pose;
+      if (!Pose) return;
       const pose = new Pose({
         locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
       });
@@ -335,7 +384,7 @@ function useMediaPipePose(
         minTrackingConfidence:  0.5,
       });
 
-      pose.onResults((results: any) => {
+      pose.onResults((results) => {
         if (destroyed) return;
         const lm = results.poseLandmarks;
         if (!lm || lm.length < 13) {
@@ -368,7 +417,7 @@ function useMediaPipePose(
           lastTime = time;
           const video = videoRef.current;
           if (video && video.readyState >= 2) {
-            try { await poseRef.current.send({ image: video }); } catch { /* ignore */ }
+            try { await poseRef.current?.send({ image: video }); } catch { /* ignore */ }
           }
         }
         rafRef.current = requestAnimationFrame(throttledFrame);
@@ -409,7 +458,7 @@ function InterviewPageContent() {
   const warningAtSeconds = Math.max(0, sessionLimitSeconds - 2 * 60);
 
   const videoRef         = useRef<HTMLVideoElement>(null);
-  const recognitionRef   = useRef<any>(null);
+  const recognitionRef   = useRef<SpeechRecognitionLike | null>(null);
   const messagesEndRef   = useRef<HTMLDivElement>(null);
   const phaseTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phaseTransitioningRef = useRef(false);
@@ -498,7 +547,7 @@ function InterviewPageContent() {
       }
     };
     r.onerror  = () => { setIsListening(false); setIsMicOn(false); };
-    r.onresult = (e: any) => {
+    r.onresult = (e) => {
       let t = "";
       for (let i = e.resultIndex; i < e.results.length; i++)
         if (e.results[i].isFinal) t += e.results[i][0].transcript + " ";

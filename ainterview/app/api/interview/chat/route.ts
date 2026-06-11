@@ -7,6 +7,11 @@ const model = genAI.getGenerativeModel({
   model: "gemini-2.5-flash",
 });
 
+interface ChatMessage {
+  sender: "ai" | "user";
+  text: string;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -30,8 +35,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const conversation = messages
-      .map((msg: any) => {
+    const conversation = (messages as ChatMessage[])
+      .map((msg) => {
         const role =
           msg.sender === "ai"
             ? "Interviewer"
