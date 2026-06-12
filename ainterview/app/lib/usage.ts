@@ -1,0 +1,117 @@
+import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
+
+export const NORMAL_ACCOUNT_LIMITS = {
+  aiTokensPerMonth: 20_000,
+  judge0RunsPerMonth: 50,
+} as const;
+
+export type UsageProvider = "gemini" | "judge0";
+
+type UsageCheck =
+  | { allowed: true; userId: string; accountPlan: "normal" | "plus"; limit: number | null; used: number }
+  | { allowed: false; userId: string; accountPlan: "normal"; limit: number; used: number; message: string };
+
+function currentMonthStart() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+}
+
+export function upgradeLimitMessage(resource: "ai" | "judge0") {
+  const label = resource === "ai" ? "AI interview feedback" : "code execution";
+  return `You have reached the monthly ${label} limit for normal accounts. Upgrade to Account Plus to continue.`;
+}
+
+export async function getCurrentUserPlan() {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return { supabase, user: null, profile: null };
+  }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("user_id, user_name, email, role, account_plan")
+    .eq("user_id", user.id)
+    .single();
+
+  return { supabase, user, profile };
+}
+
+export async function ensureMonthlyUsageAllowed(provider: UsageProvider): Promise<UsageCheck> {
+  const { supabase, user, profile } = await getCurrentUserPlan();
+  if (!user) {
+    return {
+      allowed: false,
+      userId: "",
+      accountPlan: "normal",
+      limit: 0,
+      used: 0,
+      message: "Please log in to continue.",
+    };
+  }
+
+  const accountPlan = profile?.account_plan === "plus" || profile?.role === "admin" ? "plus" : "normal";
+  const limit = provider === "gemini"
+    ? NORMAL_ACCOUNT_LIMITS.aiTokensPerMonth
+    : NORMAL_ACCOUNT_LIMITS.judge0RunsPerMonth;
+
+  const { data } = await supabase
+    .from("api_usage")
+    .select("total_tokens, judge0_runs")
+    .eq("user_id", user.id)
+    .gte("created_at", currentMonthStart());
+
+  const used = (data ?? []).reduce((sum, row) => {
+    return sum + (provider === "gemini" ? row.total_tokens ?? 0 : row.judge0_runs ?? 0);
+  }, 0);
+
+  if (accountPlan === "normal" && used >= limit) {
+    return {
+      allowed: false,
+      userId: user.id,
+      accountPlan,
+      limit,
+      used,
+      message: upgradeLimitMessage(provider === "gemini" ? "ai" : "judge0"),
+    };
+  }
+
+  return {
+    allowed: true,
+    userId: user.id,
+    accountPlan,
+    limit: accountPlan === "normal" ? limit : null,
+    used,
+  };
+}
+
+export async function recordApiUsage(input: {
+  provider: UsageProvider;
+  endpoint: string;
+  userId: string;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  judge0Runs?: number | null;
+  estimatedCostCents?: number | null;
+}) {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.from("api_usage").insert({
+    provider: input.provider,
+    endpoint: input.endpoint,
+    user_id: input.userId,
+    prompt_tokens: input.promptTokens ?? 0,
+    completion_tokens: input.completionTokens ?? 0,
+    total_tokens: input.totalTokens ?? 0,
+    judge0_runs: input.judge0Runs ?? 0,
+    estimated_cost_cents: input.estimatedCostCents ?? 0,
+  });
+
+  if (error) {
+    console.error("[usage] failed to record API usage:", error.message);
+  }
+}

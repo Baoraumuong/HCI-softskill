@@ -7,7 +7,7 @@ import { useLogout } from "@/app/hooks/useLogout";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 import type { Tables } from "@/database.types"; 
 import { BrandMark } from "@/components/BrandMark";
-import { MonitorPlay, History, LogOut, Loader2, Info } from "lucide-react";
+import { MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard/configuration", label: "Setup Interview", icon: MonitorPlay },
@@ -24,6 +24,7 @@ export default function Sidebar() {
   /* ─── Dynamic User State ───────────────────────────────── */
   const [user, setUser] = useState({
     name: "Loading...",
+    role: "user",
   });
 
   useEffect(() => {
@@ -32,9 +33,9 @@ export default function Sidebar() {
     const fetchUserProfile = async (userId: string) => {
       const { data, error } = await supabase
         .from("users")
-        .select("user_name")
+        .select("user_name, role")
         .eq("user_id", userId)
-        .single<Pick<UserProfile, "user_name">>();
+        .single<Pick<UserProfile, "user_name" | "role">>();
 
       if (error) {
         console.error("Failed to fetch user profile:", error.message);
@@ -45,6 +46,7 @@ export default function Sidebar() {
 
       setUser({
         name: data.user_name || "User",
+        role: data.role || "user",
       });
     };
 
@@ -77,6 +79,7 @@ export default function Sidebar() {
         // Reset state when logged out
         setUser({
           name: "Loading...",
+          role: "user",
         });
       }
     });
@@ -106,7 +109,7 @@ export default function Sidebar() {
           Menu
         </p>
 
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {[...NAV_ITEMS, ...(user.role === "admin" ? [{ href: "/dashboard/admin", label: "Admin", icon: ShieldCheck }] : [])].map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
 
           return (

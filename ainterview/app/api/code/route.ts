@@ -4,6 +4,7 @@ import {
   isSupabaseNetworkError,
   supabaseUnavailableMessage,
 } from "@/app/lib/supabase/errors";
+import { ensureMonthlyUsageAllowed, recordApiUsage, upgradeLimitMessage } from "@/app/lib/usage";
 
 /* Judge0 endpoint */
 const JUDGE0_URL = "https://ce.judge0.com";
@@ -138,6 +139,19 @@ async function submitOne(
 /* ─── Route handler ───────────────────────────────────────── */
 export async function POST(req: NextRequest) {
   try {
+    const usageCheck = await ensureMonthlyUsageAllowed("judge0");
+    if (!usageCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: usageCheck.message,
+          upgradeRequired: true,
+          used: usageCheck.used,
+          limit: usageCheck.limit,
+        },
+        { status: usageCheck.userId ? 402 : 401 },
+      );
+    }
+
     const body = await req.json();
     const {
       code,
@@ -193,6 +207,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No test cases provided" }, { status: 400 });
     }
     const executableTestCases = testCases;
+    if (
+      usageCheck.accountPlan === "normal" &&
+      usageCheck.limit != null &&
+      usageCheck.used + executableTestCases.length > usageCheck.limit
+    ) {
+      return NextResponse.json(
+        {
+          error: upgradeLimitMessage("judge0"),
+          upgradeRequired: true,
+          used: usageCheck.used,
+          requested: executableTestCases.length,
+          limit: usageCheck.limit,
+        },
+        { status: 402 },
+      );
+    }
 
     // Resolve language ID
     const langId: number | undefined =
@@ -214,6 +244,12 @@ export async function POST(req: NextRequest) {
           submitOne(code, langId, tc.input ?? "", tc.output ?? ""),
         ),
       );
+      await recordApiUsage({
+        provider: "judge0",
+        endpoint: "/api/code",
+        userId: usageCheck.userId,
+        judge0Runs: tokens.length,
+      });
     } catch (err: unknown) {
       if (getErrorMessage(err) === "RATE_LIMITED") {
         return NextResponse.json(

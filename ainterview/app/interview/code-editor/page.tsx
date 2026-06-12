@@ -55,6 +55,7 @@ interface RunResponse {
   summary:       { total: number; passed: number; failed: number };
   compile_error: string | null;
   error?:        string;
+  upgradeRequired?: boolean;
 }
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -180,6 +181,8 @@ function CodeEditorPageContent() {
   const [compileError,   setCompileError]   = useState<string | null>(null);
   const [isRunning,      setIsRunning]      = useState(false);
   const [runError,       setRunError]       = useState<string | null>(null);
+  const [upgradeNotice,  setUpgradeNotice]  = useState<string | null>(null);
+  const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<string | null>(null);
   const [activeTab,      setActiveTab]      = useState<"description" | "testcases" | "results">("description");
 
   const startTimeRef = useRef(Date.now());
@@ -269,6 +272,7 @@ function CodeEditorPageContent() {
 
     setIsRunning(true);
     setRunError(null);
+    setUpgradeNotice(null);
     setCompileError(null);
     setActiveTab("results");
 
@@ -286,6 +290,9 @@ function CodeEditorPageContent() {
       const data: RunResponse = await res.json();
 
       if (!res.ok || data.error) {
+        if (data.upgradeRequired) {
+          setUpgradeNotice(data.error ?? "You reached the normal account limit. Upgrade to Account Plus to continue.");
+        }
         setRunError(data.error ?? "Unknown error from Judge0.");
         setIsRunning(false);
         return;
@@ -306,6 +313,7 @@ function CodeEditorPageContent() {
     if (!code.trim() || !problem) return;
     setIsSubmitting(true);
     setRunError(null);
+    setUpgradeNotice(null);
     setCompileError(null);
 
     const { sessionId, role, level } = sessionConfig;
@@ -329,6 +337,9 @@ function CodeEditorPageContent() {
         passedCount = data.summary.passed;
         totalCount  = data.summary.total;
       } else {
+        if (data.upgradeRequired) {
+          setUpgradeNotice(data.error ?? "You reached the normal account limit. Upgrade to Account Plus to continue.");
+        }
         setRunError(data.error ?? "Could not run hidden tests for scoring.");
       }
     } catch {
@@ -399,6 +410,17 @@ function CodeEditorPageContent() {
       alert("Failed to submit code. Please try again.");
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const requestPlus = async () => {
+    setUpgradeRequestStatus("Sending request...");
+    try {
+      const res = await fetch("/api/account/upgrade-request", { method: "POST" });
+      const data = await res.json();
+      setUpgradeRequestStatus(data.message ?? (res.ok ? "Request sent." : "Could not send request."));
+    } catch {
+      setUpgradeRequestStatus("Could not send request. Please try again.");
     }
   };
 
@@ -623,6 +645,20 @@ function CodeEditorPageContent() {
                   <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3">
                     <p className="text-[11px] font-semibold text-red-700 mb-1">Execution Error</p>
                     <p className="text-[11px] text-red-600 font-mono leading-relaxed">{runError}</p>
+                  </div>
+                )}
+
+                {upgradeNotice && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                    <p className="text-[11px] font-semibold text-blue-800 mb-1">Account limit reached</p>
+                    <p className="text-[11px] text-blue-700 leading-relaxed">{upgradeNotice}</p>
+                    <button
+                      onClick={requestPlus}
+                      className="mt-2 rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-500"
+                    >
+                      Request Account Plus
+                    </button>
+                    {upgradeRequestStatus && <p className="mt-2 text-[11px] text-blue-700">{upgradeRequestStatus}</p>}
                   </div>
                 )}
 

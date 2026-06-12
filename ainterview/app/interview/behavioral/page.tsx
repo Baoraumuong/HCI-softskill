@@ -477,6 +477,8 @@ function InterviewPageContent() {
   const [showWarning,        setShowWarning]        = useState(false);
   const [isSaving,           setIsSaving]           = useState(false);
   const [showPerfPanel,      setShowPerfPanel]      = useState(false);
+  const [upgradeNotice,      setUpgradeNotice]      = useState<string | null>(null);
+  const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<string | null>(null);
 
   /* ── Phase state machine ── */
   const phasePlan = getPhasePlan(sessionConfig.interview_type);
@@ -889,6 +891,7 @@ function InterviewPageContent() {
   /* ── Send message ── */
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !sessionConfig.sessionId) return;
+    setUpgradeNotice(null);
 
     const userMsg: Message = {
       id: Date.now().toString(), sender: "user",
@@ -912,9 +915,15 @@ function InterviewPageContent() {
           context:  { ...sessionConfig, currentPhase, questionType: questionTypeNow },
         }),
       });
-      if (!res.ok) throw new Error("Chat API failed");
 
       const data = await res.json();
+      if (!res.ok) {
+        if (data.upgradeRequired) {
+          setUpgradeNotice(data.error ?? "You reached the normal account AI limit. Upgrade to Account Plus to continue.");
+          return;
+        }
+        throw new Error(data.error ?? "Chat API failed");
+      }
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(), sender: "ai",
         text: data.reply, timestamp: new Date(), questionType: questionTypeNow,
@@ -927,6 +936,17 @@ function InterviewPageContent() {
       alert("Failed to get AI response. Please try again.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const requestPlus = async () => {
+    setUpgradeRequestStatus("Sending request...");
+    try {
+      const res = await fetch("/api/account/upgrade-request", { method: "POST" });
+      const data = await res.json();
+      setUpgradeRequestStatus(data.message ?? (res.ok ? "Request sent." : "Could not send request."));
+    } catch {
+      setUpgradeRequestStatus("Could not send request. Please try again.");
     }
   };
 
@@ -1176,6 +1196,19 @@ function InterviewPageContent() {
         {/* Input */}
         {isInterviewStarted && !isSessionEnded && (
           <div className="p-4 border-t border-gray-200 bg-gray-50 relative">
+            {upgradeNotice && (
+              <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                <p className="text-[11px] font-semibold text-blue-800">Account limit reached</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-blue-700">{upgradeNotice}</p>
+                <button
+                  onClick={requestPlus}
+                  className="mt-2 rounded-lg bg-blue-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-500"
+                >
+                  Request Account Plus
+                </button>
+                {upgradeRequestStatus && <p className="mt-2 text-[11px] text-blue-700">{upgradeRequestStatus}</p>}
+              </div>
+            )}
             <div className="flex items-end gap-2">
               <textarea
                 rows={1}

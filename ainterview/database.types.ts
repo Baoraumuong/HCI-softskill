@@ -355,22 +355,113 @@ export type Database = {
           },
         ]
       }
-      users: {
+      account_requests: {
         Row: {
           created_at: string
+          message: string | null
+          request_id: string
+          request_type: string
+          resolved_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          message?: string | null
+          request_id?: string
+          request_type?: string
+          resolved_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          message?: string | null
+          request_id?: string
+          request_type?: string
+          resolved_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      api_usage: {
+        Row: {
+          completion_tokens: number
+          created_at: string
+          endpoint: string
+          estimated_cost_cents: number
+          id: number
+          judge0_runs: number
+          prompt_tokens: number
+          provider: string
+          total_tokens: number
+          user_id: string
+        }
+        Insert: {
+          completion_tokens?: number
+          created_at?: string
+          endpoint: string
+          estimated_cost_cents?: number
+          id?: number
+          judge0_runs?: number
+          prompt_tokens?: number
+          provider: string
+          total_tokens?: number
+          user_id: string
+        }
+        Update: {
+          completion_tokens?: number
+          created_at?: string
+          endpoint?: string
+          estimated_cost_cents?: number
+          id?: number
+          judge0_runs?: number
+          prompt_tokens?: number
+          provider?: string
+          total_tokens?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          account_plan: string
+          created_at: string
           email: string
+          role: string
           user_id: string
           user_name: string
         }
         Insert: {
+          account_plan?: string
           created_at?: string
           email: string
+          role?: string
           user_id: string
           user_name: string
         }
         Update: {
+          account_plan?: string
           created_at?: string
           email?: string
+          role?: string
           user_id?: string
           user_name?: string
         }
