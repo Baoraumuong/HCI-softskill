@@ -7,13 +7,16 @@ import { useLogout } from "@/app/hooks/useLogout";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 import type { Tables } from "@/database.types"; 
 import { BrandMark } from "@/components/BrandMark";
-import { BadgeDollarSign, MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck } from "lucide-react";
+import { BadgeDollarSign, ExternalLink, MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck, X } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard/configuration", label: "Setup Interview", icon: MonitorPlay },
   { href: "/dashboard/history", label: "Past Interviews", icon: History },
   { href: "/dashboard/about", label: "About", icon: Info },
 ] as const;
+
+const PLUS_CONTACT_URL = "https://www.facebook.com/inhgiabao.287766";
+const PLUS_PRICE_LABEL = "100,000 VND / month";
 
 type UserProfile = Tables<"users">;
 
@@ -29,6 +32,7 @@ export default function Sidebar() {
   });
   const [isRequestingPlus, setIsRequestingPlus] = useState(false);
   const [plusRequestStatus, setPlusRequestStatus] = useState("");
+  const [isPlusDetailsOpen, setIsPlusDetailsOpen] = useState(false);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -111,6 +115,9 @@ export default function Sidebar() {
       const res = await fetch("/api/account/upgrade-request", { method: "POST" });
       const data = await res.json();
       setPlusRequestStatus(data.message ?? (res.ok ? "Request sent." : "Could not send request."));
+      if (res.ok) {
+        setIsPlusDetailsOpen(false);
+      }
     } catch {
       setPlusRequestStatus("Could not send request. Please try again.");
     } finally {
@@ -169,16 +176,14 @@ export default function Sidebar() {
           <div className="mt-3 border-t border-gray-100 pt-3">
             <button
               type="button"
-              onClick={requestAccountPlus}
-              disabled={isRequestingPlus}
+              onClick={() => {
+                setPlusRequestStatus("");
+                setIsPlusDetailsOpen(true);
+              }}
               className="flex w-full items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left text-[13px] font-medium text-gray-700 transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span className="flex shrink-0 items-center justify-center text-gray-500">
-                {isRequestingPlus ? (
-                  <Loader2 size={16} strokeWidth={2} className="animate-spin" />
-                ) : (
-                  <BadgeDollarSign size={16} strokeWidth={2} />
-                )}
+                <BadgeDollarSign size={16} strokeWidth={2} />
               </span>
               <span className="min-w-0 flex-1">Request Account Plus</span>
             </button>
@@ -206,6 +211,9 @@ export default function Sidebar() {
             >
               {user.name}
             </p>
+            <p className="mt-0.5 text-[10.5px] font-medium uppercase tracking-[0.08em] text-gray-400">
+              {user.accountPlan === "plus" || user.role === "admin" ? "Plus" : "Normal"}
+            </p>
           </div>
         </div>
 
@@ -228,6 +236,65 @@ export default function Sidebar() {
           )}
         </button>
       </div>
+
+      {isPlusDetailsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/30 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="plus-upgrade-title"
+        >
+          <div className="w-full max-w-[320px] rounded-lg border border-gray-200 bg-white p-4 shadow-xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p id="plus-upgrade-title" className="text-sm font-semibold text-gray-900">
+                  Account Plus
+                </p>
+                <p className="mt-1 text-xs text-gray-500">Please contact admin for payment details.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPlusDetailsOpen(false)}
+                aria-label="Close Account Plus details"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-gray-200 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+              >
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">Price</p>
+              <p className="mt-1 text-lg font-semibold text-gray-900">{PLUS_PRICE_LABEL}</p>
+            </div>
+
+            <a
+              href={PLUS_CONTACT_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 flex items-center justify-between gap-3 rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
+            >
+              <span>Contact admin on Facebook</span>
+              <ExternalLink size={14} strokeWidth={2} className="shrink-0 text-gray-400" />
+            </a>
+
+            <button
+              type="button"
+              onClick={requestAccountPlus}
+              disabled={isRequestingPlus}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-md bg-gray-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRequestingPlus && <Loader2 size={14} className="animate-spin" />}
+              Send upgrade request
+            </button>
+
+            {plusRequestStatus && (
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-500" role="status" aria-live="polite">
+                {plusRequestStatus}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
