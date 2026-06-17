@@ -67,7 +67,6 @@ function DifficultyDots({ count, colorClass }: { count: number; colorClass: stri
   );
 }
 
-/*Page*/
 export default function ConfigurationPage() {
   const router   = useRouter();
   const supabase = getSupabaseBrowserClient();

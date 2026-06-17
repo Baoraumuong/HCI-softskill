@@ -7,7 +7,7 @@ import { useLogout } from "@/app/hooks/useLogout";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 import type { Tables } from "@/database.types"; 
 import { BrandMark } from "@/components/BrandMark";
-import { MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck } from "lucide-react";
+import { BadgeDollarSign, MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard/configuration", label: "Setup Interview", icon: MonitorPlay },
@@ -25,7 +25,10 @@ export default function Sidebar() {
   const [user, setUser] = useState({
     name: "Loading...",
     role: "user",
+    accountPlan: "normal",
   });
+  const [isRequestingPlus, setIsRequestingPlus] = useState(false);
+  const [plusRequestStatus, setPlusRequestStatus] = useState("");
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -33,9 +36,9 @@ export default function Sidebar() {
     const fetchUserProfile = async (userId: string) => {
       const { data, error } = await supabase
         .from("users")
-        .select("user_name, role")
+        .select("user_name, role, account_plan")
         .eq("user_id", userId)
-        .single<Pick<UserProfile, "user_name" | "role">>();
+        .single<Pick<UserProfile, "user_name" | "role" | "account_plan">>();
 
       if (error) {
         console.error("Failed to fetch user profile:", error.message);
@@ -47,6 +50,7 @@ export default function Sidebar() {
       setUser({
         name: data.user_name || "User",
         role: data.role || "user",
+        accountPlan: data.account_plan || "normal",
       });
     };
 
@@ -80,6 +84,7 @@ export default function Sidebar() {
         setUser({
           name: "Loading...",
           role: "user",
+          accountPlan: "normal",
         });
       }
     });
@@ -95,6 +100,23 @@ export default function Sidebar() {
     name && name !== "Loading..."
       ? name.charAt(0).toUpperCase()
       : "?";
+
+  const canRequestPlus = user.role !== "admin" && user.accountPlan !== "plus";
+
+  const requestAccountPlus = async () => {
+    setIsRequestingPlus(true);
+    setPlusRequestStatus("");
+
+    try {
+      const res = await fetch("/api/account/upgrade-request", { method: "POST" });
+      const data = await res.json();
+      setPlusRequestStatus(data.message ?? (res.ok ? "Request sent." : "Could not send request."));
+    } catch {
+      setPlusRequestStatus("Could not send request. Please try again.");
+    } finally {
+      setIsRequestingPlus(false);
+    }
+  };
 
   return (
     <aside className="w-[220px] min-w-[220px] h-screen sticky top-0 bg-white border-r border-gray-200 flex flex-col font-sans shrink-0 z-10">
@@ -142,6 +164,31 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        {canRequestPlus && (
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <button
+              type="button"
+              onClick={requestAccountPlus}
+              disabled={isRequestingPlus}
+              className="flex w-full items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left text-[13px] font-medium text-gray-700 transition-all duration-200 hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="flex shrink-0 items-center justify-center text-gray-500">
+                {isRequestingPlus ? (
+                  <Loader2 size={16} strokeWidth={2} className="animate-spin" />
+                ) : (
+                  <BadgeDollarSign size={16} strokeWidth={2} />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">Request Account Plus</span>
+            </button>
+            {plusRequestStatus && (
+              <p className="mt-2 px-2 text-[11px] leading-relaxed text-gray-500" role="status" aria-live="polite">
+                {plusRequestStatus}
+              </p>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* ── Footer / User Profile ── */}

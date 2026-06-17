@@ -14,6 +14,91 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_requests: {
+        Row: {
+          created_at: string
+          message: string | null
+          request_id: string
+          request_type: string
+          resolved_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          message?: string | null
+          request_id?: string
+          request_type?: string
+          resolved_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          message?: string | null
+          request_id?: string
+          request_type?: string
+          resolved_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      api_usage: {
+        Row: {
+          completion_tokens: number
+          created_at: string
+          endpoint: string
+          estimated_cost_cents: number
+          id: number
+          judge0_runs: number
+          prompt_tokens: number
+          provider: string
+          total_tokens: number
+          user_id: string
+        }
+        Insert: {
+          completion_tokens?: number
+          created_at?: string
+          endpoint: string
+          estimated_cost_cents?: number
+          id?: number
+          judge0_runs?: number
+          prompt_tokens?: number
+          provider: string
+          total_tokens?: number
+          user_id: string
+        }
+        Update: {
+          completion_tokens?: number
+          created_at?: string
+          endpoint?: string
+          estimated_cost_cents?: number
+          id?: number
+          judge0_runs?: number
+          prompt_tokens?: number
+          provider?: string
+          total_tokens?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_usage_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       code_submission: {
         Row: {
           code: string
@@ -355,91 +440,6 @@ export type Database = {
           },
         ]
       }
-      account_requests: {
-        Row: {
-          created_at: string
-          message: string | null
-          request_id: string
-          request_type: string
-          resolved_at: string | null
-          status: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          message?: string | null
-          request_id?: string
-          request_type?: string
-          resolved_at?: string | null
-          status?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          message?: string | null
-          request_id?: string
-          request_type?: string
-          resolved_at?: string | null
-          status?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "account_requests_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["user_id"]
-          },
-        ]
-      }
-      api_usage: {
-        Row: {
-          completion_tokens: number
-          created_at: string
-          endpoint: string
-          estimated_cost_cents: number
-          id: number
-          judge0_runs: number
-          prompt_tokens: number
-          provider: string
-          total_tokens: number
-          user_id: string
-        }
-        Insert: {
-          completion_tokens?: number
-          created_at?: string
-          endpoint: string
-          estimated_cost_cents?: number
-          id?: number
-          judge0_runs?: number
-          prompt_tokens?: number
-          provider: string
-          total_tokens?: number
-          user_id: string
-        }
-        Update: {
-          completion_tokens?: number
-          created_at?: string
-          endpoint?: string
-          estimated_cost_cents?: number
-          id?: number
-          judge0_runs?: number
-          prompt_tokens?: number
-          provider?: string
-          total_tokens?: number
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "api_usage_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["user_id"]
-          },
-        ]
-      }
       users: {
         Row: {
           account_plan: string
@@ -472,7 +472,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

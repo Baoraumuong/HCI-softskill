@@ -10,7 +10,7 @@ type EmailPasswordProps = {
   user: User | null;
 };
 
-type Mode = "signup" | "signin";
+type Mode = "signup" | "signin" | "forgot";
 
 export default function EmailPassword({ user }: EmailPasswordProps) {
   const router = useRouter();
@@ -26,7 +26,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
     setCurrentUser(null);
     setStatus("Signed out successfully");
   }
-
+  // auth state listener 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(
       (event, session) => {
@@ -45,6 +45,20 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) {
+        setStatus(error.message);
+      } else {
+        setStatus("Password reset link sent. Check your inbox.");
+      }
+
+      return;
+    }
 
     if (mode === "signup") {
       const { error } = await supabase.auth.signUp({
@@ -98,7 +112,11 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
           <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="text-xl font-semibold text-black">
-                {mode === "signup" ? "Create an account" : "Welcome back"}
+                {mode === "signup"
+                  ? "Create an account"
+                  : mode === "signin"
+                    ? "Welcome back"
+                    : "Reset your password"}
               </h3>
             </div>
             <div className="flex rounded-full border border-white/10 bg-white/[0.07] p-1 text-xs font-semibold text-black">
@@ -107,7 +125,10 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
                   key={option}
                   type="button"
                   aria-pressed={mode === option}
-                  onClick={() => setMode(option)}
+                  onClick={() => {
+                    setStatus("");
+                    setMode(option);
+                  }}
                   className={`rounded-full px-4 py-1 transition ${
                     mode === option
                       ? "bg-red-500/30 text-black shadow shadow-red-500/20"
@@ -131,24 +152,40 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
                 placeholder="you@email.com"
               />
             </label>
-            <label className="block text-sm font-medium text-black-200">
-              Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                minLength={6}
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-[#e9e9e6] px-3 py-2.5 text-base text-black placeholder-slate-500 shadow-inner shadow-black/30 focus:border-red-400 focus:outline-none"
-                placeholder="At least 6 characters"
-              />
-            </label>
+            {mode !== "forgot" && (
+              <label className="block text-sm font-medium text-black-200">
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  minLength={6}
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-[#e9e9e6] px-3 py-2.5 text-base text-black placeholder-slate-500 shadow-inner shadow-black/30 focus:border-red-400 focus:outline-none"
+                  placeholder="At least 6 characters"
+                />
+              </label>
+            )}
           </div>
           <button
             type="submit"
             className="mt-6 inline-flex w-full items-center justify-center rounded-full bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-600/40"
           >
-            {mode === "signup" ? "Create account" : "Sign in"}
+            {mode === "signup"
+              ? "Create account"
+              : mode === "signin"
+                ? "Sign in"
+                : "Send reset link"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStatus("");
+              setMode(mode === "forgot" ? "signin" : "forgot");
+            }}
+            className="mt-3 w-full text-center text-xs font-semibold text-red-600 transition hover:text-red-500"
+          >
+            {mode === "forgot" ? "Back to sign in" : "Forgot password?"}
           </button>
           {status && (
             <p className="mt-4 text-sm text-black" role="status" aria-live="polite">

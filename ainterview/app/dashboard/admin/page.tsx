@@ -54,7 +54,7 @@ export default async function AdminPage() {
   const requestRows = requests ?? [];
   const usageRows = usage ?? [];
   const plusUsers = userRows.filter((row) => row.account_plan === "plus").length;
-  const estimatedMonthlyRevenue = plusUsers * 19;
+  const estimatedMonthlyRevenue = plusUsers * 100000;
   const aiTokens = usageRows.reduce((sum, row) => sum + (row.total_tokens ?? 0), 0);
   const judge0Runs = usageRows.reduce((sum, row) => sum + (row.judge0_runs ?? 0), 0);
   const estimatedCost = usageRows.reduce((sum, row) => sum + (row.estimated_cost_cents ?? 0), 0) / 100;
