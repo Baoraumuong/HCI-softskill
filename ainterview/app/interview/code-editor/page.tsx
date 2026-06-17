@@ -347,16 +347,6 @@ function CodeEditorPageContent() {
     }
 
     try {
-      // Persist raw submission
-      const { error: submissionError } = await supabase.from("code_submission").insert({
-        session_id: sessionId,
-        question:   finalQuestion,
-        code,
-        language,
-      });
-      if (submissionError) throw submissionError;
-
-      // Create history row
       const { data: hist, error: historyError } = await supabase
         .from("history")
         .insert({

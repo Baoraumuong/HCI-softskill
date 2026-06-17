@@ -39,9 +39,8 @@ export async function POST(req: NextRequest) {
         provider: "gemini",
         endpoint: "/api/interview/chat",
         userId: usageCheck.userId,
-        promptTokens: usage?.promptTokenCount ?? 0,
-        completionTokens: usage?.candidatesTokenCount ?? 0,
-        totalTokens: usage?.totalTokenCount ?? Math.ceil(String(body.prompt).length / 4) + Math.ceil(text.length / 4),
+        promptTokens: usage?.promptTokenCount ?? Math.ceil(String(body.prompt).length / 4),
+        completionTokens: usage?.candidatesTokenCount ?? Math.ceil(text.length / 4),
       });
 
       return NextResponse.json({
@@ -97,9 +96,8 @@ Generate the next interviewer response only.
       provider: "gemini",
       endpoint: "/api/interview/chat",
       userId: usageCheck.userId,
-      promptTokens: usage?.promptTokenCount ?? 0,
-      completionTokens: usage?.candidatesTokenCount ?? 0,
-      totalTokens: usage?.totalTokenCount ?? Math.ceil(prompt.length / 4) + Math.ceil(reply.length / 4),
+      promptTokens: usage?.promptTokenCount ?? Math.ceil(prompt.length / 4),
+      completionTokens: usage?.candidatesTokenCount ?? Math.ceil(reply.length / 4),
     });
 
     return NextResponse.json({

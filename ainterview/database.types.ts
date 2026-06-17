@@ -19,27 +19,27 @@ export type Database = {
           created_at: string
           message: string | null
           request_id: string
-          request_type: string
+          request_type: Database["public"]["Enums"]["account_request_type"]
           resolved_at: string | null
-          status: string
+          status: Database["public"]["Enums"]["account_request_status"]
           user_id: string
         }
         Insert: {
           created_at?: string
           message?: string | null
           request_id?: string
-          request_type?: string
+          request_type?: Database["public"]["Enums"]["account_request_type"]
           resolved_at?: string | null
-          status?: string
+          status?: Database["public"]["Enums"]["account_request_status"]
           user_id: string
         }
         Update: {
           created_at?: string
           message?: string | null
           request_id?: string
-          request_type?: string
+          request_type?: Database["public"]["Enums"]["account_request_type"]
           resolved_at?: string | null
-          status?: string
+          status?: Database["public"]["Enums"]["account_request_status"]
           user_id?: string
         }
         Relationships: [
@@ -58,11 +58,11 @@ export type Database = {
           created_at: string
           endpoint: string
           estimated_cost_cents: number
-          id: number
           judge0_runs: number
           prompt_tokens: number
-          provider: string
-          total_tokens: number
+          provider: Database["public"]["Enums"]["api_provider"]
+          total_tokens: number | null
+          usage_id: number
           user_id: string
         }
         Insert: {
@@ -70,11 +70,11 @@ export type Database = {
           created_at?: string
           endpoint: string
           estimated_cost_cents?: number
-          id?: number
           judge0_runs?: number
           prompt_tokens?: number
-          provider: string
-          total_tokens?: number
+          provider: Database["public"]["Enums"]["api_provider"]
+          total_tokens?: number | null
+          usage_id?: number
           user_id: string
         }
         Update: {
@@ -82,11 +82,11 @@ export type Database = {
           created_at?: string
           endpoint?: string
           estimated_cost_cents?: number
-          id?: number
           judge0_runs?: number
           prompt_tokens?: number
-          provider?: string
-          total_tokens?: number
+          provider?: Database["public"]["Enums"]["api_provider"]
+          total_tokens?: number | null
+          usage_id?: number
           user_id?: string
         }
         Relationships: [
@@ -99,276 +99,144 @@ export type Database = {
           },
         ]
       }
-      code_submission: {
-        Row: {
-          code: string
-          language: string | null
-          question: string
-          session_id: string
-          submission_id: string
-          submitted_at: string | null
-        }
-        Insert: {
-          code: string
-          language?: string | null
-          question: string
-          session_id: string
-          submission_id?: string
-          submitted_at?: string | null
-        }
-        Update: {
-          code?: string
-          language?: string | null
-          question?: string
-          session_id?: string
-          submission_id?: string
-          submitted_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "code_submission_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "session"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
-      history: {
-        Row: {
-          answer: string
-          asked_at: string | null
-          history_id: string
-          question: string
-          session_id: string
-          video_record: string | null
-        }
-        Insert: {
-          answer: string
-          asked_at?: string | null
-          history_id?: string
-          question: string
-          session_id: string
-          video_record?: string | null
-        }
-        Update: {
-          answer?: string
-          asked_at?: string | null
-          history_id?: string
-          question?: string
-          session_id?: string
-          video_record?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "history_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "session"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
       problems: {
         Row: {
+          created_at: string
           description: string
-          difficulty: string | null
-          id: number
+          difficulty: Database["public"]["Enums"]["difficulty_level"]
           languages: string[]
           problem_id: string
           title: string
         }
         Insert: {
+          created_at?: string
           description: string
-          difficulty?: string | null
-          id?: number
-          languages: string[]
+          difficulty: Database["public"]["Enums"]["difficulty_level"]
+          languages?: string[]
           problem_id?: string
           title: string
         }
         Update: {
+          created_at?: string
           description?: string
-          difficulty?: string | null
-          id?: number
+          difficulty?: Database["public"]["Enums"]["difficulty_level"]
           languages?: string[]
           problem_id?: string
           title?: string
         }
         Relationships: []
       }
-      result_coding: {
+      response_evaluations: {
         Row: {
-          code_quality: number | null
-          correctness: number | null
-          created_at: string | null
+          created_at: string
+          evaluation_id: string
+          evaluation_type: Database["public"]["Enums"]["evaluation_type"]
           feedback: string | null
-          history_id: string
-          result_id: string
-          session_id: string
-          time_complexity: number | null
+          response_id: string
+          rubric: Json
           total_score: number | null
         }
         Insert: {
-          code_quality?: number | null
-          correctness?: number | null
-          created_at?: string | null
+          created_at?: string
+          evaluation_id?: string
+          evaluation_type: Database["public"]["Enums"]["evaluation_type"]
           feedback?: string | null
-          history_id: string
-          result_id?: string
-          session_id: string
-          time_complexity?: number | null
+          response_id: string
+          rubric?: Json
           total_score?: number | null
         }
         Update: {
-          code_quality?: number | null
-          correctness?: number | null
-          created_at?: string | null
+          created_at?: string
+          evaluation_id?: string
+          evaluation_type?: Database["public"]["Enums"]["evaluation_type"]
           feedback?: string | null
-          history_id?: string
-          result_id?: string
-          session_id?: string
-          time_complexity?: number | null
+          response_id?: string
+          rubric?: Json
           total_score?: number | null
         }
         Relationships: [
           {
-            foreignKeyName: "result_coding_history_id_fkey"
-            columns: ["history_id"]
-            isOneToOne: false
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: true
             referencedRelation: "history"
             referencedColumns: ["history_id"]
           },
           {
-            foreignKeyName: "result_coding_session_id_fkey"
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["response_id"]
+            isOneToOne: true
+            referencedRelation: "responses"
+            referencedColumns: ["response_id"]
+          },
+        ]
+      }
+      responses: {
+        Row: {
+          answer: string
+          created_at: string
+          language: string | null
+          problem_id: string | null
+          question: string
+          question_type: Database["public"]["Enums"]["evaluation_type"]
+          response_id: string
+          session_id: string
+        }
+        Insert: {
+          answer: string
+          created_at?: string
+          language?: string | null
+          problem_id?: string | null
+          question: string
+          question_type?: Database["public"]["Enums"]["evaluation_type"]
+          response_id?: string
+          session_id: string
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          language?: string | null
+          problem_id?: string | null
+          question?: string
+          question_type?: Database["public"]["Enums"]["evaluation_type"]
+          response_id?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "responses_problem_id_fkey"
+            columns: ["problem_id"]
+            isOneToOne: false
+            referencedRelation: "problems"
+            referencedColumns: ["problem_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "session"
             referencedColumns: ["session_id"]
           },
-        ]
-      }
-      result_communication: {
-        Row: {
-          communication_skill: number | null
-          conciseness: number | null
-          created_at: string | null
-          feedback: string | null
-          history_id: string
-          logical_flow: number | null
-          result_id: string
-          role_relevance: number | null
-          session_id: string
-          total_score: number | null
-        }
-        Insert: {
-          communication_skill?: number | null
-          conciseness?: number | null
-          created_at?: string | null
-          feedback?: string | null
-          history_id: string
-          logical_flow?: number | null
-          result_id?: string
-          role_relevance?: number | null
-          session_id: string
-          total_score?: number | null
-        }
-        Update: {
-          communication_skill?: number | null
-          conciseness?: number | null
-          created_at?: string | null
-          feedback?: string | null
-          history_id?: string
-          logical_flow?: number | null
-          result_id?: string
-          role_relevance?: number | null
-          session_id?: string
-          total_score?: number | null
-        }
-        Relationships: [
           {
-            foreignKeyName: "result_communication_history_id_fkey"
-            columns: ["history_id"]
-            isOneToOne: false
-            referencedRelation: "history"
-            referencedColumns: ["history_id"]
-          },
-          {
-            foreignKeyName: "result_communication_session_id_fkey"
+            foreignKeyName: "responses_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "session"
+            referencedRelation: "sessions"
             referencedColumns: ["session_id"]
           },
         ]
       }
-      result_theoretical: {
-        Row: {
-          communication_skill: number | null
-          conciseness: number | null
-          created_at: string | null
-          feedback: string | null
-          history_id: string
-          logical_flow: number | null
-          result_id: string
-          role_relevance: number | null
-          session_id: string
-          technical_accuracy: number | null
-          total_score: number | null
-        }
-        Insert: {
-          communication_skill?: number | null
-          conciseness?: number | null
-          created_at?: string | null
-          feedback?: string | null
-          history_id: string
-          logical_flow?: number | null
-          result_id?: string
-          role_relevance?: number | null
-          session_id: string
-          technical_accuracy?: number | null
-          total_score?: number | null
-        }
-        Update: {
-          communication_skill?: number | null
-          conciseness?: number | null
-          created_at?: string | null
-          feedback?: string | null
-          history_id?: string
-          logical_flow?: number | null
-          result_id?: string
-          role_relevance?: number | null
-          session_id?: string
-          technical_accuracy?: number | null
-          total_score?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "result_theoretical_history_id_fkey"
-            columns: ["history_id"]
-            isOneToOne: false
-            referencedRelation: "history"
-            referencedColumns: ["history_id"]
-          },
-          {
-            foreignKeyName: "result_theoretical_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "session"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
-      session: {
+      sessions: {
         Row: {
           duration_seconds: number | null
           ended_at: string | null
           engagement_score: number | null
           in_frame_pct: number | null
-          interview_type: string
-          level: string
+          interview_type: Database["public"]["Enums"]["interview_type"]
+          level: Database["public"]["Enums"]["interview_level"]
           role: string
           session_id: string
-          started_at: string | null
+          started_at: string
           upright_pct: number | null
           user_id: string
         }
@@ -377,11 +245,11 @@ export type Database = {
           ended_at?: string | null
           engagement_score?: number | null
           in_frame_pct?: number | null
-          interview_type: string
-          level: string
+          interview_type: Database["public"]["Enums"]["interview_type"]
+          level: Database["public"]["Enums"]["interview_level"]
           role: string
           session_id?: string
-          started_at?: string | null
+          started_at?: string
           upright_pct?: number | null
           user_id: string
         }
@@ -390,17 +258,17 @@ export type Database = {
           ended_at?: string | null
           engagement_score?: number | null
           in_frame_pct?: number | null
-          interview_type?: string
-          level?: string
+          interview_type?: Database["public"]["Enums"]["interview_type"]
+          level?: Database["public"]["Enums"]["interview_level"]
           role?: string
           session_id?: string
-          started_at?: string | null
+          started_at?: string
           upright_pct?: number | null
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "session_user_id_fkey"
+            foreignKeyName: "sessions_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
@@ -410,6 +278,7 @@ export type Database = {
       }
       testcases: {
         Row: {
+          created_at: string
           id: number
           input: string
           is_public: boolean
@@ -417,6 +286,7 @@ export type Database = {
           problem_id: string
         }
         Insert: {
+          created_at?: string
           id?: number
           input: string
           is_public?: boolean
@@ -424,6 +294,7 @@ export type Database = {
           problem_id: string
         }
         Update: {
+          created_at?: string
           id?: number
           input?: string
           is_public?: boolean
@@ -442,26 +313,26 @@ export type Database = {
       }
       users: {
         Row: {
-          account_plan: string
+          account_plan: Database["public"]["Enums"]["account_plan"]
           created_at: string
           email: string
-          role: string
+          role: Database["public"]["Enums"]["user_role"]
           user_id: string
           user_name: string
         }
         Insert: {
-          account_plan?: string
+          account_plan?: Database["public"]["Enums"]["account_plan"]
           created_at?: string
           email: string
-          role?: string
+          role?: Database["public"]["Enums"]["user_role"]
           user_id: string
           user_name: string
         }
         Update: {
-          account_plan?: string
+          account_plan?: Database["public"]["Enums"]["account_plan"]
           created_at?: string
           email?: string
-          role?: string
+          role?: Database["public"]["Enums"]["user_role"]
           user_id?: string
           user_name?: string
         }
@@ -469,13 +340,254 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      history: {
+        Row: {
+          answer: string | null
+          asked_at: string | null
+          history_id: string | null
+          question: string | null
+          session_id: string | null
+          video_record: string | null
+        }
+        Insert: {
+          answer?: string | null
+          asked_at?: string | null
+          history_id?: string | null
+          question?: string | null
+          session_id?: string | null
+          video_record?: never
+        }
+        Update: {
+          answer?: string | null
+          asked_at?: string | null
+          history_id?: string | null
+          question?: string | null
+          session_id?: string | null
+          video_record?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "session"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      result_coding: {
+        Row: {
+          code_quality: number | null
+          correctness: number | null
+          created_at: string | null
+          feedback: string | null
+          history_id: string | null
+          result_id: string | null
+          session_id: string | null
+          time_complexity: number | null
+          total_score: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["history_id"]
+            isOneToOne: true
+            referencedRelation: "history"
+            referencedColumns: ["history_id"]
+          },
+          {
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["history_id"]
+            isOneToOne: true
+            referencedRelation: "responses"
+            referencedColumns: ["response_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "session"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      result_communication: {
+        Row: {
+          communication_skill: number | null
+          conciseness: number | null
+          created_at: string | null
+          feedback: string | null
+          history_id: string | null
+          logical_flow: number | null
+          result_id: string | null
+          role_relevance: number | null
+          session_id: string | null
+          total_score: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["history_id"]
+            isOneToOne: true
+            referencedRelation: "history"
+            referencedColumns: ["history_id"]
+          },
+          {
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["history_id"]
+            isOneToOne: true
+            referencedRelation: "responses"
+            referencedColumns: ["response_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "session"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      result_theoretical: {
+        Row: {
+          communication_skill: number | null
+          conciseness: number | null
+          created_at: string | null
+          feedback: string | null
+          history_id: string | null
+          logical_flow: number | null
+          result_id: string | null
+          role_relevance: number | null
+          session_id: string | null
+          technical_accuracy: number | null
+          total_score: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["history_id"]
+            isOneToOne: true
+            referencedRelation: "history"
+            referencedColumns: ["history_id"]
+          },
+          {
+            foreignKeyName: "response_evaluations_response_id_fkey"
+            columns: ["history_id"]
+            isOneToOne: true
+            referencedRelation: "responses"
+            referencedColumns: ["response_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "session"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "responses_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      session: {
+        Row: {
+          duration_seconds: number | null
+          ended_at: string | null
+          engagement_score: number | null
+          in_frame_pct: number | null
+          interview_type: string | null
+          level: string | null
+          role: string | null
+          session_id: string | null
+          started_at: string | null
+          upright_pct: number | null
+          user_id: string | null
+        }
+        Insert: {
+          duration_seconds?: number | null
+          ended_at?: string | null
+          engagement_score?: number | null
+          in_frame_pct?: number | null
+          interview_type?: never
+          level?: never
+          role?: string | null
+          session_id?: string | null
+          started_at?: string | null
+          upright_pct?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          duration_seconds?: number | null
+          ended_at?: string | null
+          engagement_score?: number | null
+          in_frame_pct?: number | null
+          interview_type?: never
+          level?: never
+          role?: string | null
+          session_id?: string | null
+          started_at?: string | null
+          upright_pct?: number | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
     }
     Functions: {
       is_admin: { Args: never; Returns: boolean }
+      upsert_response_evaluation: {
+        Args: {
+          p_feedback: string
+          p_history_id: string
+          p_rubric: Json
+          p_total_score: number
+          p_type: Database["public"]["Enums"]["evaluation_type"]
+        }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      account_plan: "normal" | "plus"
+      account_request_status: "open" | "reviewing" | "approved" | "rejected"
+      account_request_type: "upgrade_plus"
+      api_provider: "gemini" | "judge0"
+      difficulty_level: "easy" | "medium" | "hard"
+      evaluation_type: "behavioral" | "theoretical" | "coding"
+      interview_level: "junior" | "mid" | "senior"
+      interview_type: "behavioral" | "technical" | "full"
+      user_role: "user" | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -602,6 +714,16 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      account_plan: ["normal", "plus"],
+      account_request_status: ["open", "reviewing", "approved", "rejected"],
+      account_request_type: ["upgrade_plus"],
+      api_provider: ["gemini", "judge0"],
+      difficulty_level: ["easy", "medium", "hard"],
+      evaluation_type: ["behavioral", "theoretical", "coding"],
+      interview_level: ["junior", "mid", "senior"],
+      interview_type: ["behavioral", "technical", "full"],
+      user_role: ["user", "admin"],
+    },
   },
 } as const

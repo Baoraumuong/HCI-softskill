@@ -1,4 +1,4 @@
-INSERT INTO testcases (problem_id, input, output, is_sample)
+INSERT INTO testcases (problem_id, input, output, is_public)
 VALUES 
 -- ==========================================
 -- Problem: Two Sum

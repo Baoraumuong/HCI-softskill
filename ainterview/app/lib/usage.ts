@@ -95,7 +95,6 @@ export async function recordApiUsage(input: {
   userId: string;
   promptTokens?: number | null;
   completionTokens?: number | null;
-  totalTokens?: number | null;
   judge0Runs?: number | null;
   estimatedCostCents?: number | null;
 }) {
@@ -106,7 +105,6 @@ export async function recordApiUsage(input: {
     user_id: input.userId,
     prompt_tokens: input.promptTokens ?? 0,
     completion_tokens: input.completionTokens ?? 0,
-    total_tokens: input.totalTokens ?? 0,
     judge0_runs: input.judge0Runs ?? 0,
     estimated_cost_cents: input.estimatedCostCents ?? 0,
   });
