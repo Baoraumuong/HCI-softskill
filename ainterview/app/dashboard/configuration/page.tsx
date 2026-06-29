@@ -99,6 +99,15 @@ export default function ConfigurationPage() {
     const err = validate();
     if (err) { setValErr(err); return; }
 
+    const interviewType = config.interviewType;
+    const level = config.difficulty;
+    const role = config.role.trim();
+
+    if (!interviewType || !level || !role) {
+      setValErr("Please complete all required fields.");
+      return;
+    }
+
     setIsStarting(true);
     setValErr("");
 
@@ -106,12 +115,12 @@ export default function ConfigurationPage() {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) { setValErr("You must be logged in."); return; }
       const { data: session, error: sessionError } = await supabase
-        .from("session")
+        .from("sessions")
         .insert({
           user_id:        user.id,
-          interview_type: config.interviewType,
-          level:          config.difficulty,
-          role:           config.role.trim(),
+          interview_type: interviewType,
+          level,
+          role,
         })
         .select("session_id").single();
 
@@ -123,9 +132,9 @@ export default function ConfigurationPage() {
 
       const params = new URLSearchParams({
         session: session.session_id,
-        type:    config.interviewType,
-        level:   config.difficulty,
-        role:    config.role.trim(),
+        type:    interviewType,
+        level,
+        role,
         camera:  String(config.cameraEnabled),
         mic:     String(config.microphoneEnabled),
         time_limit: String(config.timeLimitMinutes),

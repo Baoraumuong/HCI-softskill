@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
+import { getOrCreateUserProfile } from "@/app/lib/user-profile";
 
 export const NORMAL_ACCOUNT_LIMITS = {
   aiTokensPerMonth: 20_000,
@@ -32,11 +33,7 @@ export async function getCurrentUserPlan() {
     return { supabase, user: null, profile: null };
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("user_id, user_name, email, role, account_plan")
-    .eq("user_id", user.id)
-    .single();
+  const { data: profile } = await getOrCreateUserProfile(supabase, user);
 
   return { supabase, user, profile };
 }

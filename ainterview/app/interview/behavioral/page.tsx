@@ -115,6 +115,11 @@ declare global {
 const DEFAULT_SESSION_LIMIT_SECONDS = 15 * 60;
 const DEFAULT_CODING_PROBLEMS_TO_FETCH = 2;
 
+function createMessageId() {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function getPhasePlan(type: InterviewType): Phase[] {
   switch (type) {
     case "behavioral":  return ["behavioral", "ended"];
@@ -641,7 +646,7 @@ function InterviewPageContent() {
       const { data, error } = await supabase
         .from("problems")
         .select("problem_id, title, description, difficulty, languages")
-        .ilike("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
+        .eq("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
         .limit(codingProblemsToFetch);
 
       if (error) console.error("Error fetching coding problems:", error.message);
@@ -652,7 +657,7 @@ function InterviewPageContent() {
       setCodingIndex(0);
 
       const transitionMsg: Message = {
-        id:           Date.now().toString(),
+        id:           createMessageId(),
         sender:       "ai",
         text:         problems.length > 0
           ? `Great work! We're now moving to the coding section. I'll open the code editor for you.`
@@ -692,7 +697,7 @@ function InterviewPageContent() {
           const { data, error } = await supabase
             .from("problems")
             .select("problem_id, title, description, difficulty, languages")
-            .ilike("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
+            .eq("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
             .limit(codingProblemsToFetch);
 
           if (error) console.error("Error fetching coding problems:", error.message);
@@ -703,7 +708,7 @@ function InterviewPageContent() {
           setCodingIndex(0);
 
           const transitionMsg: Message = {
-            id:           Date.now().toString(),
+            id:           createMessageId(),
             sender:       "ai",
             text:         problems.length > 0
               ? `Great work! We're now moving to the coding section. I'll open the code editor for you.`
@@ -717,7 +722,7 @@ function InterviewPageContent() {
           } else {
           const phaseLabel = nextPhase === "theoretical" ? "technical" : nextPhase;
           const transitionMsg: Message = {
-            id:           Date.now().toString(),
+            id:           createMessageId(),
             sender:       "ai",
             text:         `Great! We're moving into the ${phaseLabel} section now. Let's start with a new question.`,
             timestamp:    new Date(),
@@ -885,7 +890,7 @@ function InterviewPageContent() {
       ? "Hello! Please introduce yourself and walk me through your background relevant to this role."
       : "Hello! Let's start with some technical questions. Please introduce yourself briefly.";
 
-    setMessages([{ id: Date.now().toString(), sender: "ai", text: firstMessage, timestamp: new Date(), questionType }]);
+    setMessages([{ id: createMessageId(), sender: "ai", text: firstMessage, timestamp: new Date(), questionType }]);
   };
 
   /* ── Send message ── */
@@ -894,7 +899,7 @@ function InterviewPageContent() {
     setUpgradeNotice(null);
 
     const userMsg: Message = {
-      id: Date.now().toString(), sender: "user",
+      id: createMessageId(), sender: "user",
       text: inputValue.trim(), timestamp: new Date(),
     };
     const updated         = [...messages, userMsg];
@@ -925,7 +930,7 @@ function InterviewPageContent() {
         throw new Error(data.error ?? "Chat API failed");
       }
       const aiMsg: Message = {
-        id: (Date.now() + 1).toString(), sender: "ai",
+        id: createMessageId(), sender: "ai",
         text: data.reply, timestamp: new Date(), questionType: questionTypeNow,
       };
       setMessages(prev => [...prev, aiMsg]);

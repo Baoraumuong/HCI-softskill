@@ -5,8 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLogout } from "@/app/hooks/useLogout";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
-import type { Tables } from "@/database.types"; 
+import { getOrCreateUserProfile } from "@/app/lib/user-profile";
 import { BrandMark } from "@/components/BrandMark";
+import type { User } from "@supabase/supabase-js";
 import { BadgeDollarSign, ExternalLink, MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck, X } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -17,8 +18,6 @@ const NAV_ITEMS = [
 
 const PLUS_CONTACT_URL = "https://www.facebook.com/inhgiabao.287766";
 const PLUS_PRICE_LABEL = "100,000 VND / month";
-
-type UserProfile = Tables<"users">;
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -37,12 +36,8 @@ export default function Sidebar() {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
 
-    const fetchUserProfile = async (userId: string) => {
-      const { data, error } = await supabase
-        .from("users")
-        .select("user_name, role, account_plan")
-        .eq("user_id", userId)
-        .single<Pick<UserProfile, "user_name" | "role" | "account_plan">>();
+    const fetchUserProfile = async (authUser: User) => {
+      const { data, error } = await getOrCreateUserProfile(supabase, authUser);
 
       if (error) {
         console.error("Failed to fetch user profile:", error.message);
@@ -71,7 +66,7 @@ export default function Sidebar() {
       }
 
       if (authUser) {
-        await fetchUserProfile(authUser.id);
+        await fetchUserProfile(authUser);
       }
     };
 
@@ -82,7 +77,7 @@ export default function Sidebar() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        await fetchUserProfile(session.user.id);
+        await fetchUserProfile(session.user);
       } else {
         // Reset state when logged out
         setUser({

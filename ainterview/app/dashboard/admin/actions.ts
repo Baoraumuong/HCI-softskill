@@ -2,6 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
+import type { Database } from "@/database.types";
+
+type DifficultyLevel = Database["public"]["Enums"]["difficulty_level"];
+
+const DIFFICULTY_LEVELS = ["easy", "medium", "hard"] as const satisfies readonly DifficultyLevel[];
 
 async function requireAdmin() {
   const supabase = await createSupabaseServerClient();
@@ -27,11 +32,21 @@ function requiredString(formData: FormData, key: string) {
   return value;
 }
 
+function requiredDifficulty(formData: FormData): DifficultyLevel {
+  const value = requiredString(formData, "difficulty").toLowerCase();
+
+  if (!DIFFICULTY_LEVELS.includes(value as DifficultyLevel)) {
+    throw new Error("difficulty must be easy, medium, or hard");
+  }
+
+  return value as DifficultyLevel;
+}
+
 export async function createCodingProblem(formData: FormData) {
   const supabase = await requireAdmin();
   const title = requiredString(formData, "title");
   const description = requiredString(formData, "description");
-  const difficulty = requiredString(formData, "difficulty").toLowerCase();
+  const difficulty = requiredDifficulty(formData);
   const languages = requiredString(formData, "languages")
     .split(",")
     .map((value) => value.trim().toLowerCase())

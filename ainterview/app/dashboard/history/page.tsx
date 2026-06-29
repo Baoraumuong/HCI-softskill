@@ -616,7 +616,8 @@ function HistoryPageContent() {
 
       if (hErr || !histRows) { setDetailLoad(false); return; }
 
-      const ids = histRows.map(h => h.history_id);
+      const historyRows = histRows.filter((h): h is typeof h & { history_id: string } => h.history_id !== null);
+      const ids = historyRows.map(h => h.history_id);
 
       const [commRes, theoRes, codeRes] = await Promise.all([
         supabase.from("result_communication").select("*").in("history_id", ids),
@@ -624,11 +625,11 @@ function HistoryPageContent() {
         supabase.from("result_coding").select("*").in("history_id", ids),
       ]);
 
-      const commMap = Object.fromEntries((commRes.data ?? []).map(r => [r.history_id, r]));
-      const theoMap = Object.fromEntries((theoRes.data ?? []).map(r => [r.history_id, r]));
-      const codeMap = Object.fromEntries((codeRes.data ?? []).map(r => [r.history_id, r]));
+      const commMap = Object.fromEntries((commRes.data ?? []).filter(r => r.history_id !== null).map(r => [r.history_id, r]));
+      const theoMap = Object.fromEntries((theoRes.data ?? []).filter(r => r.history_id !== null).map(r => [r.history_id, r]));
+      const codeMap = Object.fromEntries((codeRes.data ?? []).filter(r => r.history_id !== null).map(r => [r.history_id, r]));
 
-      const items: QAWithResult[] = histRows.map(h => ({
+      const items: QAWithResult[] = historyRows.map(h => ({
         history:               h as HistoryItem,
         result_communication:  commMap[h.history_id] as ResultCommunication | undefined,
         result_theoretical:    theoMap[h.history_id] as ResultTheoretical   | undefined,

@@ -21,11 +21,6 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
   const supabase = getSupabaseBrowserClient();
   const [currentUser, setCurrentUser] = useState<User | null>(user);
 
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    setCurrentUser(null);
-    setStatus("Signed out successfully");
-  }
   // auth state listener 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(
@@ -43,6 +38,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
     };
   }, [supabase, router]);
 
+  // Handle form submission for sign up, sign in, and password reset
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -54,7 +50,7 @@ export default function EmailPassword({ user }: EmailPasswordProps) {
       if (error) {
         setStatus(error.message);
       } else {
-        setStatus("Password reset link sent. Check your inbox.");
+        setStatus("Password reset link sent. Check your email inbox.");
       }
 
       return;

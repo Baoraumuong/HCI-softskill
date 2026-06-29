@@ -13,6 +13,7 @@ import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 type InterviewType = "behavioral" | "technical" | "full";
 type Level         = "junior" | "mid" | "senior";
 type Language      = "javascript" | "typescript" | "python" | "java" | "go" | "cpp";
+type Difficulty    = "easy" | "medium" | "hard";
 
 interface SessionConfig {
   sessionId:      string;
@@ -77,7 +78,7 @@ const STARTER_CODE: Record<Language, string> = {
   cpp:        `#include <iostream>\n#include <string>\n#include <sstream>\nusing namespace std;\n\nstring solution(string input) {\n    // your code here\n    return "";\n}\n\nint main() {\n    ostringstream ss;\n    ss << cin.rdbuf();\n    cout << solution(ss.str());\n    return 0;\n}\n`,
 };
 
-const LEVEL_TO_DIFFICULTY: Record<Level, string> = {
+const LEVEL_TO_DIFFICULTY: Record<Level, Difficulty> = {
   junior: "easy",
   mid:    "medium",
   senior: "hard",
@@ -227,7 +228,7 @@ function CodeEditorPageContent() {
         const { data: problems, error } = await supabase
           .from("problems")
           .select("problem_id, title, description, difficulty, languages")
-          .ilike("difficulty", difficulty);
+          .eq("difficulty", difficulty);
 
         if (error || !problems?.length) {
           setProblemError(error?.message ?? `No ${difficulty} problems found.`);

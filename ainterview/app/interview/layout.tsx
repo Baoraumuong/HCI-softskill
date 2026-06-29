@@ -1,6 +1,5 @@
 "use client";
 
-import "../globals.css";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, StopCircle } from "lucide-react";

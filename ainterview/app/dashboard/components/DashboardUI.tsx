@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 
-export function PageHeader({
-  eyebrow,
-  title,
-  subtitle,
-}: {
+export function PageHeader({eyebrow,title,subtitle,}: {
   eyebrow: string;
   title: string;
   subtitle: string;
