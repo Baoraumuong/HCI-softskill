@@ -8,11 +8,12 @@ import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 import { getOrCreateUserProfile } from "@/app/lib/user-profile";
 import { BrandMark } from "@/components/BrandMark";
 import type { User } from "@supabase/supabase-js";
-import { BadgeDollarSign, ExternalLink, MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck, X } from "lucide-react";
+import { BadgeDollarSign, ExternalLink, Gauge, MonitorPlay, History, LogOut, Loader2, Info, ShieldCheck, X } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard/configuration", label: "Setup Interview", icon: MonitorPlay },
   { href: "/dashboard/history", label: "Past Interviews", icon: History },
+  { href: "/dashboard/usage", label: "Usage", icon: Gauge },
   { href: "/dashboard/about", label: "About", icon: Info },
 ] as const;
 

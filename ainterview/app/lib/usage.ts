@@ -1,5 +1,7 @@
 import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
 import { getOrCreateUserProfile } from "@/app/lib/user-profile";
+import type { Database } from "@/database.types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const NORMAL_ACCOUNT_LIMITS = {
   aiTokensPerMonth: 20_000,
@@ -12,9 +14,63 @@ type UsageCheck =
   | { allowed: true; userId: string; accountPlan: "normal" | "plus"; limit: number | null; used: number }
   | { allowed: false; userId: string; accountPlan: "normal"; limit: number; used: number; message: string };
 
-function currentMonthStart() {
+export function currentMonthStart() {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+}
+
+type MonthlyUsageRow = Pick<
+  Database["public"]["Tables"]["api_usage"]["Row"],
+  "user_id" | "total_tokens" | "judge0_runs" | "estimated_cost_cents"
+>;
+
+export type UsageTotals = {
+  aiTokens: number;
+  judge0Runs: number;
+  estimatedCostCents: number;
+};
+
+export function summarizeUsage(rows: MonthlyUsageRow[]): UsageTotals {
+  return rows.reduce<UsageTotals>(
+    (totals, row) => ({
+      aiTokens: totals.aiTokens + (row.total_tokens ?? 0),
+      judge0Runs: totals.judge0Runs + (row.judge0_runs ?? 0),
+      estimatedCostCents: totals.estimatedCostCents + (row.estimated_cost_cents ?? 0),
+    }),
+    { aiTokens: 0, judge0Runs: 0, estimatedCostCents: 0 },
+  );
+}
+
+export async function fetchMonthlyUsageRows(
+  supabase: SupabaseClient<Database>,
+  userId?: string,
+): Promise<MonthlyUsageRow[]> {
+  const pageSize = 1_000;
+  const monthStart = currentMonthStart();
+  const rows: MonthlyUsageRow[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    let query = supabase
+      .from("api_usage")
+      .select("user_id, total_tokens, judge0_runs, estimated_cost_cents")
+      .gte("created_at", monthStart)
+      .order("usage_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (userId) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      throw new Error(`Failed to load monthly usage: ${error.message}`);
+    }
+
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) {
+      return rows;
+    }
+  }
 }
 
 export function upgradeLimitMessage(resource: "ai" | "judge0") {

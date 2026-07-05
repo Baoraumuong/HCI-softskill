@@ -11,6 +11,10 @@ import {
   ChevronDown, ChevronUp,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
+import {
+  calculateTotalScore,
+  validatedRubricScore,
+} from "@/app/lib/interview-scoring";
 
 interface Message {
   id: string;
@@ -32,7 +36,7 @@ interface SessionConfig {
   role:           string;
 }
 
-interface HistoryRow { history_id: string; }
+interface ResponseRow { response_id: string; }
 
 interface CodingProblem {
   problem_id:  string;
@@ -115,6 +119,17 @@ declare global {
 const DEFAULT_SESSION_LIMIT_SECONDS = 15 * 60;
 const DEFAULT_CODING_PROBLEMS_TO_FETCH = 2;
 
+function pickRandomItems<T>(items: T[], count: number): T[] {
+  const shuffled = [...items];
+
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const randomIndex = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[i]];
+  }
+
+  return shuffled.slice(0, count);
+}
+
 function createMessageId() {
   return globalThis.crypto?.randomUUID?.()
     ?? `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -164,7 +179,8 @@ Score:
 Question: "${q}"
 Answer: "${a}"
 Respond ONLY with valid JSON, no markdown, no preamble:
-{"role_relevance":<0-30>,"logical_flow":<0-30>,"conciseness":<0-30>,"communication_skill":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
+{"role_relevance":<0-30>,"logical_flow":<0-30>,"conciseness":<0-30>,"communication_skill":<0-10>,"feedback":"<2-3 sentences>"}
+Do not include total_score; the application calculates it from the rubric scores.`;
 }
 
 function buildTheoreticalPrompt(role: string, level: string, q: string, a: string) {
@@ -178,7 +194,8 @@ Score:
 Question: "${q}"
 Answer: "${a}"
 Respond ONLY with valid JSON, no markdown:
-{"technical_accuracy":<0-40>,"role_relevance":<0-20>,"logical_flow":<0-20>,"conciseness":<0-10>,"communication_skill":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
+{"technical_accuracy":<0-40>,"role_relevance":<0-20>,"logical_flow":<0-20>,"conciseness":<0-10>,"communication_skill":<0-10>,"feedback":"<2-3 sentences>"}
+Do not include total_score; the application calculates it from the rubric scores.`;
 }
 
 function parseJsonObject(raw: unknown) {
@@ -196,20 +213,21 @@ function parseJsonObject(raw: unknown) {
   }
 }
 
-function numberOrNull(value: unknown) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
 function getAnalysisConfig(
   questionType: QuestionType,
   role: string, level: string,
   question: string, answer: string,
-): { prompt: string; table: "result_communication" | "result_theoretical" } {
+): { prompt: string; evaluationType: "behavioral" | "theoretical" } {
   if (questionType === "behavioral") {
-    return { prompt: buildBehavioralPrompt(role, level, question, answer), table: "result_communication" };
+    return {
+      prompt: buildBehavioralPrompt(role, level, question, answer),
+      evaluationType: "behavioral",
+    };
   }
-  return { prompt: buildTheoreticalPrompt(role, level, question, answer), table: "result_theoretical" };
+  return {
+    prompt: buildTheoreticalPrompt(role, level, question, answer),
+    evaluationType: "theoretical",
+  };
 }
 
 function computeEngagementScore(m: PostureMetrics): number {
@@ -492,6 +510,8 @@ function InterviewPageContent() {
     phaseDuration(sessionConfig.interview_type, phasePlan[0], sessionLimitSeconds),
   );
   const currentPhase = phasePlan[phaseIndex] as Phase;
+  const isCommunicationPhase =
+    currentPhase === "behavioral" || currentPhase === "theoretical";
 
   /* ── Q tracking ── */
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>([]);
@@ -508,7 +528,7 @@ function InterviewPageContent() {
 
   useMediaPipePose(
     videoRef,
-    isCameraOn && isInterviewStarted && !isSessionEnded,
+    isCameraOn && isInterviewStarted && !isSessionEnded && isCommunicationPhase,
     setPostureMetrics,
     setPostureStatus,
   );
@@ -529,9 +549,9 @@ function InterviewPageContent() {
         alert("Unable to access camera/microphone.");
       }
     };
-    if (isCameraOn) startCamera();
+    if (isCameraOn && isCommunicationPhase) startCamera();
     return () => { stream?.getTracks().forEach(t => t.stop()); };
-  }, [isCameraOn]);
+  }, [isCameraOn, isCommunicationPhase]);
 
   /* ── Speech recognition ── */
   useEffect(() => {
@@ -627,6 +647,36 @@ function InterviewPageContent() {
       sessionConfig.interview_type === "full") &&
     currentPhase !== "coding";
 
+  const saveCommunicationEngagement = async () => {
+    const hasTrackedFrames = postureMetrics.totalFrames > 0;
+    const { error } = await supabase
+      .from("sessions")
+      .update({
+        duration_seconds: interviewTime,
+        engagement_score: hasTrackedFrames
+          ? computeEngagementScore(postureMetrics)
+          : null,
+        in_frame_pct: hasTrackedFrames
+          ? Math.round((postureMetrics.inFrameFrames / postureMetrics.totalFrames) * 100)
+          : null,
+        upright_pct: hasTrackedFrames
+          ? Math.round((postureMetrics.uprightFrames / postureMetrics.totalFrames) * 100)
+          : null,
+      })
+      .eq("session_id", sessionConfig.sessionId);
+
+    if (error) console.error("Error saving communication engagement:", error.message);
+  };
+
+  const stopCommunicationTracking = () => {
+    const stream = videoRef.current?.srcObject;
+    if (stream instanceof MediaStream) {
+      stream.getTracks().forEach(track => track.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
+    }
+    setIsCameraOn(false);
+  };
+
   async function startCodingPhase(target: "new-tab" | "same-tab" = "same-tab") {
     if (phaseTransitioningRef.current) return;
     phaseTransitioningRef.current = true;
@@ -642,16 +692,20 @@ function InterviewPageContent() {
 
       setPhaseIndex(codingPhaseIndex);
       setPhaseTimeLeft(null);
+      stopCommunicationTracking();
+      await saveCommunicationEngagement();
 
       const { data, error } = await supabase
         .from("problems")
         .select("problem_id, title, description, difficulty, languages")
-        .eq("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
-        .limit(codingProblemsToFetch);
+        .eq("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium");
 
       if (error) console.error("Error fetching coding problems:", error.message);
 
-      const problems = (data ?? []) as CodingProblem[];
+      const problems = pickRandomItems(
+        (data ?? []) as CodingProblem[],
+        codingProblemsToFetch,
+      );
       codingProblemsRef.current = problems;
       setCodingProblems(problems);
       setCodingIndex(0);
@@ -694,15 +748,19 @@ function InterviewPageContent() {
       setTimeout(async () => {
         try {
           if (nextPhase === "coding") {
+          stopCommunicationTracking();
+          await saveCommunicationEngagement();
           const { data, error } = await supabase
             .from("problems")
             .select("problem_id, title, description, difficulty, languages")
-            .eq("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium")
-            .limit(codingProblemsToFetch);
+            .eq("difficulty", sessionConfig.level === "junior" ? "easy" : sessionConfig.level === "senior" ? "hard" : "medium");
 
           if (error) console.error("Error fetching coding problems:", error.message);
 
-          const problems = (data ?? []) as CodingProblem[];
+          const problems = pickRandomItems(
+            (data ?? []) as CodingProblem[],
+            codingProblemsToFetch,
+          );
           codingProblemsRef.current = problems;
           setCodingProblems(problems);
           setCodingIndex(0);
@@ -749,8 +807,12 @@ function InterviewPageContent() {
       type:       sessionConfig.interview_type,
       level:      sessionConfig.level,
       role:       sessionConfig.role,
-      problem_id: problem.problem_id,
     });
+    const availableProblems = codingProblemsRef.current.length
+      ? codingProblemsRef.current
+      : [problem];
+    availableProblems.forEach(item => params.append("problem_id", item.problem_id));
+    params.set("selected_problem_id", problem.problem_id);
     const url = `/interview/code-editor?${params}`;
     if (target === "same-tab") {
       router.push(url);
@@ -784,16 +846,30 @@ function InterviewPageContent() {
   ) => {
     const { sessionId, role, level } = sessionConfig;
 
-    const { data: histData, error: histErr } = await supabase
-      .from("history")
-      .insert({ session_id: sessionId, question, answer })
-      .select("history_id")
-      .single<HistoryRow>();
+    const { data: responseData, error: responseError } = await supabase
+      .from("responses")
+      .insert({
+        session_id: sessionId,
+        question,
+        answer,
+        question_type: questionType === "coding" ? "theoretical" : questionType,
+      })
+      .select("response_id")
+      .single<ResponseRow>();
 
-    if (histErr || !histData) { console.error("History insert error:", histErr?.message); return; }
+    if (responseError || !responseData) {
+      console.error("Response insert error:", responseError?.message);
+      return;
+    }
 
     const effectiveType = questionType === "coding" ? "theoretical" : questionType;
-    const { prompt, table } = getAnalysisConfig(effectiveType, role, level, question, answer);
+    const { prompt, evaluationType } = getAnalysisConfig(
+      effectiveType,
+      role,
+      level,
+      question,
+      answer,
+    );
 
     try {
       const res = await fetch("/api/interview/chat", {
@@ -804,37 +880,35 @@ function InterviewPageContent() {
       if (!res.ok) throw new Error("Analysis API failed");
       const raw    = await res.json();
       const scores = parseJsonObject(raw.result ?? raw);
-      const baseResult = {
-        history_id: histData.history_id,
-        session_id: sessionId,
-        feedback: typeof scores.feedback === "string" ? scores.feedback : null,
-        total_score: numberOrNull(scores.total_score),
-      };
+      const rubric = evaluationType === "behavioral"
+        ? {
+            role_relevance: validatedRubricScore(scores.role_relevance, 30),
+            logical_flow: validatedRubricScore(scores.logical_flow, 30),
+            conciseness: validatedRubricScore(scores.conciseness, 30),
+            communication_skill: validatedRubricScore(scores.communication_skill, 10),
+          }
+        : {
+            technical_accuracy: validatedRubricScore(scores.technical_accuracy, 40),
+            role_relevance: validatedRubricScore(scores.role_relevance, 20),
+            logical_flow: validatedRubricScore(scores.logical_flow, 20),
+            conciseness: validatedRubricScore(scores.conciseness, 10),
+            communication_skill: validatedRubricScore(scores.communication_skill, 10),
+          };
+      const totalScore = calculateTotalScore(Object.values(rubric));
 
-      if (table === "result_communication") {
-        await supabase.from(table).insert({
-          ...baseResult,
-          role_relevance: numberOrNull(scores.role_relevance),
-          logical_flow: numberOrNull(scores.logical_flow),
-          conciseness: numberOrNull(scores.conciseness),
-          communication_skill: numberOrNull(scores.communication_skill),
-        });
-      } else {
-        await supabase.from(table).insert({
-          ...baseResult,
-          technical_accuracy: numberOrNull(scores.technical_accuracy),
-          role_relevance: numberOrNull(scores.role_relevance),
-          logical_flow: numberOrNull(scores.logical_flow),
-          conciseness: numberOrNull(scores.conciseness),
-          communication_skill: numberOrNull(scores.communication_skill),
-        });
-      }
+      await supabase.from("response_evaluations").insert({
+        response_id: responseData.response_id,
+        evaluation_type: evaluationType,
+        feedback: typeof scores.feedback === "string" ? scores.feedback : null,
+        total_score: totalScore,
+        rubric,
+      });
 
       setQuestionResults(prev => [...prev, {
         questionText: question,
         answerText:   answer,
         questionType,
-        totalScore:   numberOrNull(scores.total_score),
+        totalScore,
         feedback:     typeof scores.feedback === "string" ? scores.feedback : null,
       }]);
     } catch (e) {
@@ -850,16 +924,17 @@ function InterviewPageContent() {
     if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current);
     if (recognitionRef.current) recognitionRef.current.stop();
 
-    const engagement = computeEngagementScore(postureMetrics);
+    const hasTrackedFrames = postureMetrics.totalFrames > 0;
+    const engagement = hasTrackedFrames ? computeEngagementScore(postureMetrics) : null;
     await supabase
-      .from("session")
+      .from("sessions")
       .update({
         ended_at:         new Date().toISOString(),
         duration_seconds: interviewTime,
         engagement_score: engagement,
-        in_frame_pct:     postureMetrics.totalFrames
+        in_frame_pct:     hasTrackedFrames
           ? Math.round((postureMetrics.inFrameFrames / postureMetrics.totalFrames) * 100) : null,
-        upright_pct:      postureMetrics.totalFrames
+        upright_pct:      hasTrackedFrames
           ? Math.round((postureMetrics.uprightFrames / postureMetrics.totalFrames) * 100) : null,
       })
       .eq("session_id", sessionConfig.sessionId);
@@ -869,7 +944,10 @@ function InterviewPageContent() {
   }, [isSessionEnded, interviewTime, postureMetrics, sessionConfig.sessionId, supabase, router]);
 
   /* ── Toggles ── */
-  const toggleCamera = () => setIsCameraOn(p => !p);
+  const toggleCamera = () => {
+    if (!isCommunicationPhase) return;
+    setIsCameraOn(p => !p);
+  };
   const toggleMic    = () => {
     if (!speechSupported)        { alert("Speech recognition not supported in this browser."); return; }
     if (!recognitionRef.current) return;
@@ -878,7 +956,7 @@ function InterviewPageContent() {
   };
 
   /* ── Start interview ── */
-  const startInterview = () => {
+  const startInterview = async () => {
     if (!sessionConfig.sessionId) {
       alert("No session found. Please go back and configure again.");
       return;
@@ -886,9 +964,36 @@ function InterviewPageContent() {
     setIsInterviewStarted(true);
     const firstPhase     = phasePlan[0] as Phase;
     const questionType   = phaseToQuestionType(firstPhase);
-    const firstMessage   = firstPhase === "behavioral"
-      ? "Hello! Please introduce yourself and walk me through your background relevant to this role."
-      : "Hello! Let's start with some technical questions. Please introduce yourself briefly.";
+    const fallbackMessage = firstPhase === "behavioral"
+      ? sessionConfig.level === "senior"
+        ? `Tell me about a high-stakes, ambiguous ${sessionConfig.role} situation where stakeholders had conflicting priorities. How did you make the decision, align people, manage risk, and what was the measurable outcome?`
+        : "Tell me about a specific workplace situation where your actions had a meaningful impact. What did you do, and what did you learn?"
+      : sessionConfig.level === "senior"
+        ? `You are responsible for a production-critical ${sessionConfig.role} system facing conflicting reliability, delivery, and cost constraints. How would you frame the architecture decision, evaluate trade-offs, and manage failure risk?`
+        : `Explain a core ${sessionConfig.role} concept you use often, including how it works, when to use it, and one important limitation.`;
+
+    setIsLoading(true);
+    let firstMessage = fallbackMessage;
+    try {
+      const res = await fetch("/api/interview/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [],
+          context: { ...sessionConfig, currentPhase: firstPhase, questionType },
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && typeof data.reply === "string" && data.reply.trim()) {
+        firstMessage = data.reply.trim();
+      } else if (data.upgradeRequired) {
+        setUpgradeNotice(data.error ?? "You reached the normal account AI limit.");
+      }
+    } catch (error) {
+      console.error("Initial question error:", error);
+    } finally {
+      setIsLoading(false);
+    }
 
     setMessages([{ id: createMessageId(), sender: "ai", text: firstMessage, timestamp: new Date(), questionType }]);
   };

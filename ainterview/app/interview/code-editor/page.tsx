@@ -4,10 +4,14 @@ import { Suspense, useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Clock, Play, RotateCcw, ChevronDown, ArrowLeft,
-  CheckCircle2, Code2, FlaskConical, ChevronRight,
+  CheckCircle2, Code2, FlaskConical,
   Loader2, AlertCircle, Terminal, XCircle, Zap,
 } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
+import {
+  calculateTotalScore,
+  validatedRubricScore,
+} from "@/app/lib/interview-scoring";
 
 /* ─── Types ──────────────────────────────────────────────── */
 type InterviewType = "behavioral" | "technical" | "full";
@@ -59,6 +63,11 @@ interface RunResponse {
   upgradeRequired?: boolean;
 }
 
+interface ProblemDraft {
+  code: string;
+  language: Language;
+}
+
 /* ─── Constants ──────────────────────────────────────────── */
 const LANGUAGES: { id: Language; label: string }[] = [
   { id: "javascript", label: "JavaScript" },
@@ -106,7 +115,8 @@ ${code}
 \`\`\`
 
 Respond ONLY with valid JSON, no markdown, no preamble:
-{"correctness":<0-80>,"time_complexity":<0-10>,"code_quality":<0-10>,"feedback":"<2-3 sentences>","total_score":<0-100>}`;
+{"correctness":<0-80>,"time_complexity":<0-10>,"code_quality":<0-10>,"feedback":"<2-3 sentences>"}
+Do not include total_score; the application calculates it from the rubric scores.`;
 }
 
 function parseJsonObject(raw: unknown) {
@@ -122,11 +132,6 @@ function parseJsonObject(raw: unknown) {
   } catch {
     return {};
   }
-}
-
-function numberOrNull(value: unknown) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
 }
 
 /* ─── Small UI pieces ────────────────────────────────────── */
@@ -160,7 +165,11 @@ function CodeEditorPageContent() {
   };
 
   // problem_id passed from interview page → fetch by ID
-  const problemIdFromUrl = searchParams.get("problem_id") ?? "";
+  const problemIdsFromUrl = Array.from(
+    new Set(searchParams.getAll("problem_id").filter(Boolean)),
+  );
+  const selectedProblemIdFromUrl =
+    searchParams.get("selected_problem_id") ?? problemIdsFromUrl[0] ?? "";
 
   /* ─── State ─────────────────────────────────────────────── */
   const [language,       setLanguage]       = useState<Language>("javascript");
@@ -169,6 +178,7 @@ function CodeEditorPageContent() {
   const [elapsed,        setElapsed]        = useState(0);
 
   const [problem,        setProblem]        = useState<Problem | null>(null);
+  const [problems,       setProblems]       = useState<Problem[]>([]);
   const [testCases,      setTestCases]      = useState<TestCase[]>([]);
   const [loadingProblem, setLoadingProblem] = useState(true);
   const [problemError,   setProblemError]   = useState<string | null>(null);
@@ -185,8 +195,11 @@ function CodeEditorPageContent() {
   const [upgradeNotice,  setUpgradeNotice]  = useState<string | null>(null);
   const [upgradeRequestStatus, setUpgradeRequestStatus] = useState<string | null>(null);
   const [activeTab,      setActiveTab]      = useState<"description" | "testcases" | "results">("description");
+  const [completedProblemIds, setCompletedProblemIds] = useState<Set<string>>(new Set());
 
   const startTimeRef = useRef(Date.now());
+  const draftsRef = useRef<Record<string, ProblemDraft>>({});
+  const feedbackByProblemRef = useRef<Record<string, string | null>>({});
 
   /* ─── Timer ──────────────────────────────────────────────── */
   useEffect(() => {
@@ -202,59 +215,101 @@ function CodeEditorPageContent() {
 
   /* ─── Fetch problem ──────────────────────────────────────── */
   useEffect(() => {
-    const fetchProblem = async () => {
+    const fetchProblems = async () => {
       setLoadingProblem(true);
       setProblemError(null);
 
-      let picked: Problem | null = null;
+      let availableProblems: Problem[] = [];
 
-      if (problemIdFromUrl) {
-        // Fetch the specific problem passed from the interview page
+      if (problemIdsFromUrl.length > 0) {
         const { data, error } = await supabase
           .from("problems")
           .select("problem_id, title, description, difficulty, languages")
-          .eq("problem_id", problemIdFromUrl)
-          .single();
+          .in("problem_id", problemIdsFromUrl);
 
-        if (error || !data) {
-          setProblemError(error?.message ?? "Problem not found.");
+        if (error || !data?.length) {
+          setProblemError(error?.message ?? "No configured problems were found.");
           setLoadingProblem(false);
           return;
         }
-        picked = data as Problem;
+
+        const byId = new Map((data as Problem[]).map(item => [item.problem_id, item]));
+        availableProblems = problemIdsFromUrl
+          .map(id => byId.get(id))
+          .filter((item): item is Problem => Boolean(item));
       } else {
-        // Fallback: fetch a random problem by difficulty
         const difficulty = LEVEL_TO_DIFFICULTY[sessionConfig.level];
-        const { data: problems, error } = await supabase
+        const { data, error } = await supabase
           .from("problems")
           .select("problem_id, title, description, difficulty, languages")
           .eq("difficulty", difficulty);
 
-        if (error || !problems?.length) {
+        if (error || !data?.length) {
           setProblemError(error?.message ?? `No ${difficulty} problems found.`);
           setLoadingProblem(false);
           return;
         }
-        picked = problems[Math.floor(Math.random() * problems.length)] as Problem;
+
+        availableProblems = [
+          data[Math.floor(Math.random() * data.length)] as Problem,
+        ];
       }
 
+      const picked =
+        availableProblems.find(item => item.problem_id === selectedProblemIdFromUrl)
+        ?? availableProblems[0];
+      setProblems(availableProblems);
       setProblem(picked);
+    };
 
-      // Fetch public test cases
+    fetchProblems();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProblemIdFromUrl, sessionConfig.level]);
+
+  useEffect(() => {
+    if (!problem) return;
+    let cancelled = false;
+
+    const fetchTestCases = async () => {
+      setLoadingProblem(true);
+      setProblemError(null);
       const { data: cases } = await supabase
         .from("testcases")
         .select("id, input, output, is_public")
-        .eq("problem_id", picked.problem_id)
-        .eq("is_public", true)   // only show public cases to candidate
+        .eq("problem_id", problem.problem_id)
+        .eq("is_public", true)
         .order("id");
 
+      if (cancelled) return;
       setTestCases((cases as TestCase[]) ?? []);
       setLoadingProblem(false);
     };
 
-    fetchProblem();
+    fetchTestCases();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [problemIdFromUrl, sessionConfig.level]);
+  }, [problem?.problem_id]);
+
+  const selectProblem = (nextProblem: Problem) => {
+    if (isRunning || isSubmitting || nextProblem.problem_id === problem?.problem_id) return;
+
+    if (problem) {
+      draftsRef.current[problem.problem_id] = { code, language };
+    }
+
+    const draft = draftsRef.current[nextProblem.problem_id];
+    setProblem(nextProblem);
+    setLanguage(draft?.language ?? "javascript");
+    setCode(draft?.code ?? STARTER_CODE.javascript);
+    setIsSubmitted(completedProblemIds.has(nextProblem.problem_id));
+    setFeedback(feedbackByProblemRef.current[nextProblem.problem_id] ?? null);
+    setTestResults([]);
+    setRunSummary(null);
+    setCompileError(null);
+    setRunError(null);
+    setUpgradeNotice(null);
+    setActiveTab("description");
+  };
 
   /* ─── Language change ────────────────────────────────────── */
   const changeLanguage = (lang: Language) => {
@@ -348,18 +403,21 @@ function CodeEditorPageContent() {
     }
 
     try {
-      const { data: hist, error: historyError } = await supabase
-        .from("history")
+      const { data: response, error: responseError } = await supabase
+        .from("responses")
         .insert({
           session_id:   sessionId,
           question:     finalQuestion,
           answer:       code,
+          question_type: "coding",
+          problem_id:   problem?.problem_id ?? null,
+          language,
         })
-        .select("history_id")
+        .select("response_id")
         .single();
-      if (historyError) throw historyError;
+      if (responseError) throw responseError;
 
-      if (hist) {
+      if (response?.response_id) {
         const prompt = buildCodingPrompt(
           role, level, finalQuestion, code, language, passedCount, totalCount,
         );
@@ -374,26 +432,41 @@ function CodeEditorPageContent() {
         if (aiRes.ok) {
           const raw    = await aiRes.json();
           const scores = parseJsonObject(raw.result ?? raw);
-          const correctness = numberOrNull(scores.correctness);
-          const timeComplexity = numberOrNull(scores.time_complexity);
-          const codeQuality = numberOrNull(scores.code_quality);
-          const totalScore = numberOrNull(scores.total_score);
-
-          const { error: codingResultError } = await supabase.from("result_coding").insert({
-            history_id:      hist.history_id,
-            session_id:      sessionId,
+          const correctness = validatedRubricScore(scores.correctness, 80);
+          const timeComplexity = validatedRubricScore(scores.time_complexity, 10);
+          const codeQuality = validatedRubricScore(scores.code_quality, 10);
+          const totalScore = calculateTotalScore([
             correctness,
-            time_complexity: timeComplexity,
-            code_quality:    codeQuality,
+            timeComplexity,
+            codeQuality,
+          ]);
+
+          const { error: codingResultError } = await supabase.from("response_evaluations").insert({
+            response_id:     response.response_id,
+            evaluation_type: "coding",
             feedback:        typeof scores.feedback === "string" ? scores.feedback : null,
             total_score:     totalScore,
+            rubric: {
+              correctness,
+              time_complexity: timeComplexity,
+              code_quality: codeQuality,
+            },
           });
           if (codingResultError) throw codingResultError;
 
-          setFeedback(typeof scores.feedback === "string" ? scores.feedback : null);
+          const nextFeedback =
+            typeof scores.feedback === "string" ? scores.feedback : null;
+          setFeedback(nextFeedback);
+          feedbackByProblemRef.current[problem.problem_id] = nextFeedback;
         }
       }
 
+      draftsRef.current[problem.problem_id] = { code, language };
+      setCompletedProblemIds(prev => {
+        const next = new Set(prev);
+        next.add(problem.problem_id);
+        return next;
+      });
       setIsSubmitted(true);
       setActiveTab("results");
     } catch (e) {
@@ -413,6 +486,15 @@ function CodeEditorPageContent() {
     } catch {
       setUpgradeRequestStatus("Could not send request. Please try again.");
     }
+  };
+
+  const finishInterview = async () => {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ ended_at: new Date().toISOString() })
+      .eq("session_id", sessionConfig.sessionId);
+    if (error) console.error("Finish session error:", error.message);
+    router.push(`/dashboard/history?session=${sessionConfig.sessionId}`);
   };
 
   /* ─── Difficulty badge colour ────────────────────────────── */
@@ -451,12 +533,6 @@ function CodeEditorPageContent() {
         <div className="flex flex-col items-center gap-3 max-w-sm text-center">
           <AlertCircle size={28} className="text-red-500" />
           <p className="text-sm text-red-600">{problemError}</p>
-          <button
-            onClick={() => router.back()}
-            className="mt-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs text-gray-700 shadow-sm hover:bg-gray-50 transition"
-          >
-            Go Back
-          </button>
         </div>
       </div>
     );
@@ -470,7 +546,10 @@ function CodeEditorPageContent() {
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-white shadow-sm shrink-0">
         <div className="flex items-center gap-2">
           <button
-            onClick={() => window.close()}
+            onClick={() => {
+              if (window.opener) window.close();
+              else finishInterview();
+            }}
             className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-600 shadow-sm hover:bg-gray-50 transition"
           >
             <ArrowLeft size={12} /> Back
@@ -539,6 +618,49 @@ function CodeEditorPageContent() {
 
         {/* LEFT — Problem panel */}
         <aside className="w-80 lg:w-[420px] shrink-0 border-r border-gray-200 flex flex-col bg-white overflow-hidden">
+
+          <div className="border-b border-gray-200 bg-gray-50 px-5 py-3 shrink-0">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                Questions
+              </p>
+              <span className="text-[10px] font-medium text-gray-500">
+                {completedProblemIds.size}/{problems.length} completed
+              </span>
+            </div>
+            <div className="flex max-h-36 flex-col gap-1.5 overflow-y-auto" aria-label="Choose a coding question">
+              {problems.map((item, index) => {
+                const isActive = item.problem_id === problem?.problem_id;
+                const isComplete = completedProblemIds.has(item.problem_id);
+                return (
+                  <button
+                    key={item.problem_id}
+                    type="button"
+                    onClick={() => selectProblem(item)}
+                    disabled={isRunning || isSubmitting}
+                    title={item.title}
+                    aria-pressed={isActive}
+                    className={`flex min-h-8 w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                      isActive
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : isComplete
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
+                          : "border-gray-200 bg-white text-gray-600 hover:border-gray-400"
+                    }`}
+                  >
+                    {isComplete && <CheckCircle2 size={11} />}
+                    <span className="shrink-0 text-[10px] opacity-70">Q{index + 1}</span>
+                    <span className="truncate">{item.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {problems.length > 1 && (
+              <p className="mt-2 text-[10px] leading-relaxed text-gray-400">
+                Choose any question in the order you prefer. Your draft is kept when you switch.
+              </p>
+            )}
+          </div>
 
           {/* Problem header */}
           <div className="px-5 pt-5 pb-3 border-b border-gray-200 shrink-0">
@@ -747,10 +869,18 @@ function CodeEditorPageContent() {
                   <p className="text-[12px] text-gray-600 leading-relaxed">{feedback}</p>
                 )}
                 <button
-                  onClick={() => window.close()}
+                  onClick={() => {
+                    const nextProblem = problems.find(
+                      item => !completedProblemIds.has(item.problem_id),
+                    );
+                    if (nextProblem) selectProblem(nextProblem);
+                    else finishInterview();
+                  }}
                   className="w-full rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-xs font-medium py-2 transition shadow-sm"
                 >
-                  Close Editor
+                  {problems.some(item => !completedProblemIds.has(item.problem_id))
+                    ? "Choose another question"
+                    : "Finish interview"}
                 </button>
               </div>
             ) : (

@@ -1,7 +1,7 @@
 import { Activity,BadgeDollarSign,Brain,Code2,FilePlus2,Gauge,ShieldAlert,Users,type LucideIcon} from "lucide-react";
 import { createSupabaseServerClient } from "@/app/lib/supabase/server-client";
 import { Card, CardHeader, PageHeader, SectionLabel } from "@/app/dashboard/components/DashboardUI";
-import { NORMAL_ACCOUNT_LIMITS } from "@/app/lib/usage";
+import { fetchMonthlyUsageRows, NORMAL_ACCOUNT_LIMITS, summarizeUsage, type UsageTotals } from "@/app/lib/usage";
 import { createCodingProblem, setUserPlan, updateAccountRequest } from "./actions";
 
 export default async function AdminPage() {
@@ -24,16 +24,12 @@ export default async function AdminPage() {
     return <AccessDenied message="This page is only available to admins." />;
   }
 
-  const [{ data: users }, { count: sessionCount }, { count: problemCount }, { data: usage }, { data: requests }] =
+  const [{ data: users }, { count: sessionCount }, { count: problemCount }, usageRows, { data: requests }] =
     await Promise.all([
       supabase.from("users").select("user_id, user_name, email, role, account_plan, created_at").order("created_at", { ascending: false }),
-      supabase.from("session").select("session_id", { count: "exact", head: true }),
+      supabase.from("sessions").select("session_id", { count: "exact", head: true }),
       supabase.from("problems").select("problem_id", { count: "exact", head: true }),
-      supabase
-        .from("api_usage")
-        .select("provider, total_tokens, judge0_runs, estimated_cost_cents, created_at")
-        .order("created_at", { ascending: false })
-        .limit(500),
+      fetchMonthlyUsageRows(supabase),
       supabase
         .from("account_requests")
         .select("request_id, user_id, request_type, status, message, created_at, resolved_at")
@@ -42,12 +38,18 @@ export default async function AdminPage() {
 
   const userRows = users ?? [];
   const requestRows = requests ?? [];
-  const usageRows = usage ?? [];
   const plusUsers = userRows.filter((row) => row.account_plan === "plus").length;
   const estimatedMonthlyRevenue = plusUsers * 100000;
-  const aiTokens = usageRows.reduce((sum, row) => sum + (row.total_tokens ?? 0), 0);
-  const judge0Runs = usageRows.reduce((sum, row) => sum + (row.judge0_runs ?? 0), 0);
-  const estimatedCost = usageRows.reduce((sum, row) => sum + (row.estimated_cost_cents ?? 0), 0) / 100;
+  const totalUsage = summarizeUsage(usageRows);
+  const estimatedCost = totalUsage.estimatedCostCents / 100;
+  const usageByUser = usageRows.reduce((byUser, row) => {
+    const totals = byUser.get(row.user_id) ?? { aiTokens: 0, judge0Runs: 0, estimatedCostCents: 0 };
+    totals.aiTokens += row.total_tokens ?? 0;
+    totals.judge0Runs += row.judge0_runs ?? 0;
+    totals.estimatedCostCents += row.estimated_cost_cents ?? 0;
+    byUser.set(row.user_id, totals);
+    return byUser;
+  }, new Map<string, UsageTotals>());
   const userById = new Map(userRows.map((row) => [row.user_id, row]));
 
   return (
@@ -61,8 +63,8 @@ export default async function AdminPage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard icon={Users} label="Users" value={String(userRows.length)} sub={`${plusUsers} Plus accounts`} />
         <MetricCard icon={Activity} label="Sessions" value={String(sessionCount ?? 0)} sub="All interview sessions" />
-        <MetricCard icon={Brain} label="AI tokens" value={aiTokens.toLocaleString()} sub={`Normal limit ${NORMAL_ACCOUNT_LIMITS.aiTokensPerMonth.toLocaleString()}/mo`} />
-        <MetricCard icon={Code2} label="Judge0 runs" value={judge0Runs.toLocaleString()} sub={`Normal limit ${NORMAL_ACCOUNT_LIMITS.judge0RunsPerMonth}/mo`} />
+        <MetricCard icon={Brain} label="AI tokens" value={totalUsage.aiTokens.toLocaleString()} sub="All accounts this month" />
+        <MetricCard icon={Code2} label="Code submissions" value={totalUsage.judge0Runs.toLocaleString()} sub="All accounts this month" />
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -135,33 +137,64 @@ export default async function AdminPage() {
         </div>
 
         <Card>
-          <SectionLabel>User Plans</SectionLabel>
+          <SectionLabel>User plans & monthly usage</SectionLabel>
           <div className="flex max-h-[720px] flex-col gap-2 overflow-y-auto pr-1">
-            {userRows.map((row) => (
-              <div key={row.user_id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-[12px] font-semibold text-gray-900">{row.user_name}</p>
-                    <p className="truncate text-[11px] text-gray-500">{row.email}</p>
+            {userRows.map((row) => {
+              const userUsage = usageByUser.get(row.user_id) ?? { aiTokens: 0, judge0Runs: 0, estimatedCostCents: 0 };
+              const isUnlimited = row.account_plan === "plus" || row.role === "admin";
+
+              return (
+                <div key={row.user_id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-semibold text-gray-900">{row.user_name}</p>
+                      <p className="truncate text-[11px] text-gray-500">{row.email}</p>
+                    </div>
+                    <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-500">
+                      {row.account_plan}
+                    </span>
                   </div>
-                  <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-500">
-                    {row.account_plan}
-                  </span>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <AccountUsage
+                      label="AI tokens"
+                      used={userUsage.aiTokens}
+                      limit={isUnlimited ? null : NORMAL_ACCOUNT_LIMITS.aiTokensPerMonth}
+                    />
+                    <AccountUsage
+                      label="Submissions"
+                      used={userUsage.judge0Runs}
+                      limit={isUnlimited ? null : NORMAL_ACCOUNT_LIMITS.judge0RunsPerMonth}
+                    />
+                  </div>
+                  {row.role !== "admin" && (
+                    <form action={setUserPlan} className="mt-3 flex gap-2">
+                      <input type="hidden" name="user_id" value={row.user_id} />
+                      <input type="hidden" name="account_plan" value={row.account_plan === "plus" ? "normal" : "plus"} />
+                      <button className="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-400">
+                        Set {row.account_plan === "plus" ? "Normal" : "Plus"}
+                      </button>
+                    </form>
+                  )}
                 </div>
-                {row.role !== "admin" && (
-                  <form action={setUserPlan} className="mt-3 flex gap-2">
-                    <input type="hidden" name="user_id" value={row.user_id} />
-                    <input type="hidden" name="account_plan" value={row.account_plan === "plus" ? "normal" : "plus"} />
-                    <button className="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-400">
-                      Set {row.account_plan === "plus" ? "Normal" : "Plus"}
-                    </button>
-                  </form>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function AccountUsage({ label, used, limit }: { label: string; used: number; limit: number | null }) {
+  return (
+    <div className="rounded-md border border-gray-200 bg-white p-2">
+      <p className="text-[9px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-0.5 text-[11px] font-bold text-gray-800">
+        {used.toLocaleString()}
+        <span className="font-normal text-gray-400">
+          {limit == null ? " / unlimited" : ` / ${limit.toLocaleString()}`}
+        </span>
+      </p>
     </div>
   );
 }

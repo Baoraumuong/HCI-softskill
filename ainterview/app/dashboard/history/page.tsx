@@ -7,10 +7,8 @@
  * 1. Overall Performance Analysis panel — aggregated across all Q&A result types
  *    (behavioral, theoretical, coding) with a unified 0-100 scale.
  * 2. Engagement Level card derived from engagement_score, in_frame_pct, upright_pct
- *    saved to the session table by the interview page on session end.
- * 3. Per-question cards now show which phase/type the question belonged to
- *    (read from result table presence: result_communication = behavioral,
- *     result_theoretical = theoretical, result_coding = coding).
+ *    saved to the sessions table by the interview page on session end.
+ * 3. Per-question cards show the phase recorded on each response evaluation.
  */
 
 import { Suspense, useState, useEffect, type ElementType } from "react";
@@ -29,6 +27,7 @@ import { getSupabaseBrowserClient } from "@/app/lib/supabase/browser-client";
 ───────────────────────────────────────────────────────────── */
 type InterviewType = "behavioral" | "technical" | "full";
 type Level = "junior" | "mid" | "senior";
+type EvaluationType = "behavioral" | "theoretical" | "coding";
 
 interface Session {
   session_id:       string;
@@ -44,54 +43,26 @@ interface Session {
   upright_pct:      number | null;
 }
 
-interface HistoryItem {
-  history_id:   string;
+interface InterviewResponse {
+  response_id:  string;
   question:     string;
   answer:       string;
-  asked_at:     string | null;
+  created_at:   string;
+  question_type: EvaluationType;
 }
 
-interface ResultCommunication {
-  history_id:          string;
-  role_relevance:      number | null;
-  logical_flow:        number | null;
-  conciseness:         number | null;
-  communication_skill: number | null;
-  total_score:         number | null;
-  feedback:            string | null;
-}
-
-interface ResultTheoretical {
-  history_id:          string;
-  technical_accuracy:  number | null;
-  role_relevance:      number | null;
-  logical_flow:        number | null;
-  conciseness:         number | null;
-  communication_skill: number | null;
-  total_score:         number | null;
-  feedback:            string | null;
-}
-
-interface ResultCoding {
-  history_id:      string;
-  correctness:     number | null;
-  time_complexity: number | null;
-  code_quality:    number | null;
+interface ResponseEvaluation {
+  response_id:     string;
+  evaluation_type: EvaluationType;
+  rubric:          unknown;
   total_score:     number | null;
   feedback:        string | null;
 }
 
 interface QAWithResult {
-  history:               HistoryItem;
-  result_communication?: ResultCommunication;
-  result_theoretical?:   ResultTheoretical;
-  result_coding?:        ResultCoding;
+  response:    InterviewResponse;
+  evaluation?: ResponseEvaluation;
 }
-
-type ResultKey = keyof Pick<
-  QAWithResult,
-  "result_communication" | "result_theoretical" | "result_coding"
->;
 
 /* ─────────────────────────────────────────────────────────────
    HELPERS
@@ -117,6 +88,15 @@ const scoreLabel = (pct: number) =>
 
 const engagementLabel = (pct: number) =>
   pct >= 80 ? "Highly engaged" : pct >= 60 ? "Engaged" : pct >= 40 ? "Somewhat engaged" : "Low engagement";
+
+function rubricScore(rubric: unknown, key: string): number | null {
+  if (typeof rubric !== "object" || rubric === null || Array.isArray(rubric)) {
+    return null;
+  }
+
+  const value = (rubric as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
 const formatDuration = (s: number) => {
   const m   = Math.floor(s / 60);
@@ -206,30 +186,29 @@ function OverallAnalysisPanel({
   session,
   qaItems,
 }: { session: Session; qaItems: QAWithResult[] }) {
-  // Separate items by result type
-  const behavioralItems  = qaItems.filter(q => q.result_communication);
-  const theoreticalItems = qaItems.filter(q => q.result_theoretical);
-  const codingItems      = qaItems.filter(q => q.result_coding);
+  const behavioralItems = qaItems.filter(q => q.evaluation?.evaluation_type === "behavioral");
+  const theoreticalItems = qaItems.filter(q => q.evaluation?.evaluation_type === "theoretical");
+  const codingItems = qaItems.filter(q => q.evaluation?.evaluation_type === "coding");
 
-  const avg = (items: QAWithResult[], key: ResultKey) => {
-    const scored = items.filter(q => q[key]?.total_score != null);
+  const avg = (items: QAWithResult[]) => {
+    const scored = items.filter(q => q.evaluation?.total_score != null);
     if (!scored.length) return null;
-    return Math.round(scored.reduce((a, q) => a + (q[key]?.total_score ?? 0), 0) / scored.length);
+    return Math.round(
+      scored.reduce((total, item) => total + (item.evaluation?.total_score ?? 0), 0)
+      / scored.length,
+    );
   };
 
-  const behavioralAvg  = avg(behavioralItems,  "result_communication");
-  const theoreticalAvg = avg(theoreticalItems, "result_theoretical");
-  const codingAvg      = avg(codingItems,      "result_coding");
+  const behavioralAvg = avg(behavioralItems);
+  const theoreticalAvg = avg(theoreticalItems);
+  const codingAvg = avg(codingItems);
 
-  const allScored = qaItems.filter(q => {
-    const r = q.result_communication ?? q.result_theoretical ?? q.result_coding;
-    return r?.total_score != null;
-  });
+  const allScored = qaItems.filter(q => q.evaluation?.total_score != null);
   const overallAvg = allScored.length
-    ? Math.round(allScored.reduce((a, q) => {
-        const r = q.result_communication ?? q.result_theoretical ?? q.result_coding;
-        return a + (r?.total_score ?? 0);
-      }, 0) / allScored.length)
+    ? Math.round(
+        allScored.reduce((total, item) => total + (item.evaluation?.total_score ?? 0), 0)
+        / allScored.length,
+      )
     : null;
 
   const engagement = session.engagement_score;
@@ -405,41 +384,45 @@ function QACard({
   item, index,
 }: { item: QAWithResult; index: number; interviewType: InterviewType }) {
   const [expanded, setExpanded] = useState(index === 0);
-  const { history, result_communication, result_theoretical, result_coding } = item;
+  const { response, evaluation } = item;
 
-  const result     = result_communication ?? result_theoretical ?? result_coding;
-  const totalScore = result?.total_score ?? null;
+  const totalScore = evaluation?.total_score ?? null;
   const maxScore   = 100;
   const pct        = totalScore != null ? Math.round((totalScore / maxScore) * 100) : null;
 
-  const resultType = result_communication ? "Behavioral"
-    : result_coding                       ? "Coding"
-    : result_theoretical                  ? "Theoretical"
+  const evaluationType = evaluation?.evaluation_type ?? response.question_type;
+  const resultType = evaluationType === "behavioral" ? "Behavioral"
+    : evaluationType === "coding" ? "Coding"
+    : evaluationType === "theoretical" ? "Theoretical"
     : null;
 
   const renderScores = () => {
-    if (result_communication) return (
+    if (!evaluation) {
+      return <p className="text-xs text-gray-400 italic">No analysis available for this answer.</p>;
+    }
+
+    if (evaluation.evaluation_type === "behavioral") return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <ScoreBar label="Role Relevance"    value={result_communication.role_relevance}      max={30} />
-        <ScoreBar label="Logical Flow (STAR)" value={result_communication.logical_flow}      max={30} />
-        <ScoreBar label="Conciseness"       value={result_communication.conciseness}          max={30} />
-        <ScoreBar label="Communication"     value={result_communication.communication_skill}  max={10} />
+        <ScoreBar label="Role Relevance" value={rubricScore(evaluation.rubric, "role_relevance")} max={30} />
+        <ScoreBar label="Logical Flow (STAR)" value={rubricScore(evaluation.rubric, "logical_flow")} max={30} />
+        <ScoreBar label="Conciseness" value={rubricScore(evaluation.rubric, "conciseness")} max={30} />
+        <ScoreBar label="Communication" value={rubricScore(evaluation.rubric, "communication_skill")} max={10} />
       </div>
     );
-    if (result_theoretical) return (
+    if (evaluation.evaluation_type === "theoretical") return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <ScoreBar label="Technical Accuracy" value={result_theoretical.technical_accuracy}  max={40} />
-        <ScoreBar label="Role Relevance"     value={result_theoretical.role_relevance}      max={20} />
-        <ScoreBar label="Logical Flow"       value={result_theoretical.logical_flow}        max={20} />
-        <ScoreBar label="Conciseness"        value={result_theoretical.conciseness}         max={10} />
-        <ScoreBar label="Communication"      value={result_theoretical.communication_skill} max={10} />
+        <ScoreBar label="Technical Accuracy" value={rubricScore(evaluation.rubric, "technical_accuracy")} max={40} />
+        <ScoreBar label="Role Relevance" value={rubricScore(evaluation.rubric, "role_relevance")} max={20} />
+        <ScoreBar label="Logical Flow" value={rubricScore(evaluation.rubric, "logical_flow")} max={20} />
+        <ScoreBar label="Conciseness" value={rubricScore(evaluation.rubric, "conciseness")} max={10} />
+        <ScoreBar label="Communication" value={rubricScore(evaluation.rubric, "communication_skill")} max={10} />
       </div>
     );
-    if (result_coding) return (
+    if (evaluation.evaluation_type === "coding") return (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <ScoreBar label="Correctness"     value={result_coding.correctness}     max={80} />
-        <ScoreBar label="Time Complexity" value={result_coding.time_complexity} max={10} />
-        <ScoreBar label="Code Quality"    value={result_coding.code_quality}    max={10} />
+        <ScoreBar label="Correctness" value={rubricScore(evaluation.rubric, "correctness")} max={80} />
+        <ScoreBar label="Time Complexity" value={rubricScore(evaluation.rubric, "time_complexity")} max={10} />
+        <ScoreBar label="Code Quality" value={rubricScore(evaluation.rubric, "code_quality")} max={10} />
       </div>
     );
     return <p className="text-xs text-gray-400 italic">No analysis available for this answer.</p>;
@@ -455,7 +438,7 @@ function QACard({
           {index + 1}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-semibold text-gray-900 leading-snug line-clamp-2">{history.question}</p>
+          <p className="text-[13px] font-semibold text-gray-900 leading-snug line-clamp-2">{response.question}</p>
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             {resultType && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
@@ -465,9 +448,9 @@ function QACard({
                 {resultType}
               </span>
             )}
-            {history.asked_at && (
+            {response.created_at && (
               <span className="text-[10px] text-gray-400">
-                {new Date(history.asked_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {new Date(response.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             )}
           </div>
@@ -488,7 +471,7 @@ function QACard({
           <div>
             <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-gray-400 mb-2">Your Answer</p>
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-64 overflow-y-auto">
-              <p className="text-[12.5px] text-gray-700 leading-relaxed whitespace-pre-wrap">{history.answer}</p>
+              <p className="text-[12.5px] text-gray-700 leading-relaxed whitespace-pre-wrap">{response.answer}</p>
             </div>
           </div>
 
@@ -497,12 +480,12 @@ function QACard({
             {renderScores()}
           </div>
 
-          {result?.feedback && (
+          {evaluation?.feedback && (
             <div className="flex gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
               <CheckCircle2 size={16} className="text-blue-500 shrink-0 mt-0.5" />
               <div>
                 <p className="text-[10px] font-bold tracking-[0.09em] uppercase text-blue-400 mb-1">AI Feedback</p>
-                <p className="text-[12.5px] text-blue-900 leading-relaxed">{result.feedback}</p>
+                <p className="text-[12.5px] text-blue-900 leading-relaxed">{evaluation.feedback}</p>
               </div>
             </div>
           )}
@@ -587,7 +570,7 @@ function HistoryPageContent() {
       if (!user) { setError("Not authenticated."); setLoading(false); return; }
 
       const { data, error: err } = await supabase
-        .from("session")
+        .from("sessions")
         .select("session_id, interview_type, level, role, started_at, ended_at, duration_seconds, engagement_score, in_frame_pct, upright_pct")
         .eq("user_id", user.id)
         .order("started_at", { ascending: false });
@@ -608,32 +591,42 @@ function HistoryPageContent() {
       setDetailLoad(true);
       setQaItems([]);
 
-      const { data: histRows, error: hErr } = await supabase
-        .from("history")
-        .select("history_id, question, answer, asked_at")
+      const { data: responseRows, error: responseError } = await supabase
+        .from("responses")
+        .select("response_id, question, answer, created_at, question_type")
         .eq("session_id", activeId)
-        .order("asked_at", { ascending: true });
+        .order("created_at", { ascending: true });
 
-      if (hErr || !histRows) { setDetailLoad(false); return; }
+      if (responseError || !responseRows) {
+        setError(responseError?.message ?? "Could not load interview responses.");
+        setDetailLoad(false);
+        return;
+      }
 
-      const historyRows = histRows.filter((h): h is typeof h & { history_id: string } => h.history_id !== null);
-      const ids = historyRows.map(h => h.history_id);
+      const responseIds = responseRows.map(response => response.response_id);
+      const evaluationResult = responseIds.length
+        ? await supabase
+            .from("response_evaluations")
+            .select("response_id, evaluation_type, rubric, total_score, feedback")
+            .in("response_id", responseIds)
+        : { data: [], error: null };
 
-      const [commRes, theoRes, codeRes] = await Promise.all([
-        supabase.from("result_communication").select("*").in("history_id", ids),
-        supabase.from("result_theoretical").select("*").in("history_id", ids),
-        supabase.from("result_coding").select("*").in("history_id", ids),
-      ]);
+      if (evaluationResult.error) {
+        setError(evaluationResult.error.message);
+        setDetailLoad(false);
+        return;
+      }
 
-      const commMap = Object.fromEntries((commRes.data ?? []).filter(r => r.history_id !== null).map(r => [r.history_id, r]));
-      const theoMap = Object.fromEntries((theoRes.data ?? []).filter(r => r.history_id !== null).map(r => [r.history_id, r]));
-      const codeMap = Object.fromEntries((codeRes.data ?? []).filter(r => r.history_id !== null).map(r => [r.history_id, r]));
+      const evaluationMap = new Map(
+        (evaluationResult.data ?? []).map(evaluation => [
+          evaluation.response_id,
+          evaluation as ResponseEvaluation,
+        ]),
+      );
 
-      const items: QAWithResult[] = historyRows.map(h => ({
-        history:               h as HistoryItem,
-        result_communication:  commMap[h.history_id] as ResultCommunication | undefined,
-        result_theoretical:    theoMap[h.history_id] as ResultTheoretical   | undefined,
-        result_coding:         codeMap[h.history_id] as ResultCoding         | undefined,
+      const items: QAWithResult[] = responseRows.map(response => ({
+        response: response as InterviewResponse,
+        evaluation: evaluationMap.get(response.response_id),
       }));
 
       setQaItems(items);
@@ -645,16 +638,11 @@ function HistoryPageContent() {
   const activeSession = sessions.find(s => s.session_id === activeId);
 
   const overallAvg = (() => {
-    const scored = qaItems.filter(q => {
-      const r = q.result_communication ?? q.result_theoretical ?? q.result_coding;
-      return r?.total_score != null;
-    });
+    const scored = qaItems.filter(q => q.evaluation?.total_score != null);
     if (!scored.length) return null;
     return Math.round(
-      scored.reduce((acc, q) => {
-        const r = q.result_communication ?? q.result_theoretical ?? q.result_coding;
-        return acc + (r?.total_score ?? 0);
-      }, 0) / scored.length
+      scored.reduce((total, item) => total + (item.evaluation?.total_score ?? 0), 0)
+      / scored.length,
     );
   })();
 
@@ -821,7 +809,7 @@ function HistoryPageContent() {
                   </p>
                   {qaItems.map((item, i) => (
                     <QACard
-                      key={item.history.history_id}
+                      key={item.response.response_id}
                       item={item}
                       index={i}
                       interviewType={activeSession.interview_type}

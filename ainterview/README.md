@@ -105,32 +105,29 @@ If the build fails while fetching Google Fonts, check that the environment has n
 
 ## Database Notes
 
-The application expects the Supabase tables represented in `database.types.ts`, including:
+The application uses the canonical Supabase tables represented in `database.types.ts`, including:
 
 - `users`
-- `session`
-- `history`
+- `sessions`
+- `responses`
+- `response_evaluations`
 - `problems`
 - `testcases`
-- `code_submission`
-- `result_communication`
-- `result_theoretical`
-- `result_coding`
+- `api_usage`
+- `account_requests`
 
 The SQL files under `supabase/` are useful references and seed examples, but `database.types.ts` reflects the schema currently used by the app code.
 
 ## Core Data Flow
 
 1. A user configures an interview from the dashboard.
-2. A `session` row is created in Supabase.
+2. A `sessions` row is created in Supabase.
 3. The live interview page asks questions and sends conversation context to `/api/interview/chat`.
-4. Candidate answers are saved to `history`.
-5. AI scoring results are saved to the relevant result table:
-   - `result_communication` for behavioral responses
-   - `result_theoretical` for theoretical responses
-   - `result_coding` for coding submissions
-6. Coding submissions are also saved in `code_submission`.
-7. The history page aggregates saved results into session-level feedback.
+4. Candidate answers and code submissions are saved to `responses`, with their
+   type recorded as `behavioral`, `theoretical`, or `coding`.
+5. AI scores and type-specific JSON rubrics are saved to
+   `response_evaluations`.
+6. The history page aggregates responses and evaluations into session-level feedback.
 
 ## Code Execution
 
