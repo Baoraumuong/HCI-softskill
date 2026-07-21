@@ -126,6 +126,7 @@ Level contract:
 Rules:
 - Keep responses under 120 words
 - Ask exactly one primary question in each response; a short follow-up probe may be attached to that same question
+- Do not announce, repeat, or summarize phase transitions. The client handles section-change announcements; continue directly with feedback or the next question for the current phase.
 - Never provide the final evaluation during the interview
 
 Interview Conversation:

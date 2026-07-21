@@ -22,6 +22,7 @@ interface Message {
   text: string;
   timestamp: Date;
   questionType?: QuestionType;
+  isIntroduction?: boolean;
 }
 
 type QuestionType   = "behavioral" | "theoretical" | "coding";
@@ -166,6 +167,17 @@ function phaseToQuestionType(phase: Phase): QuestionType {
     case "theoretical": return "theoretical";
     case "coding":      return "coding";
     default:            return "theoretical";
+  }
+}
+
+function buildTheoreticalOpeningQuestion(role: string, level: Level) {
+  switch (level) {
+    case "junior":
+      return `Choose one foundational ${role} concept you have used. What problem does it solve, how does it work at a basic level, and when would you use it?`;
+    case "mid":
+      return `Describe a technical decision a ${role} might face when two reasonable approaches have different performance, maintainability, and delivery trade-offs. How would you compare them and choose an approach?`;
+    case "senior":
+      return `You are responsible for a production-critical ${role} system facing conflicting reliability, delivery, and cost constraints. How would you frame the architecture decision, evaluate trade-offs, and manage failure risk?`;
   }
 }
 
@@ -727,9 +739,7 @@ function InterviewPageContent() {
     }
   }
 
-  /* ── Advance phase ──
-     Uses ref for codingProblems to avoid stale closure bug.
-  ── */
+  /*Advance phase*/
   const advancePhase = useCallback(async () => {
     if (phaseTransitioningRef.current) return;
     phaseTransitioningRef.current = true;
@@ -782,7 +792,7 @@ function InterviewPageContent() {
           const transitionMsg: Message = {
             id:           createMessageId(),
             sender:       "ai",
-            text:         `Great! We're moving into the ${phaseLabel} section now. Let's start with a new question.`,
+            text:         `Great! We're moving into the ${phaseLabel} section now. ${buildTheoreticalOpeningQuestion(sessionConfig.role, sessionConfig.level)}`,
             timestamp:    new Date(),
             questionType: phaseToQuestionType(nextPhase),
           };
@@ -797,7 +807,7 @@ function InterviewPageContent() {
     });
   }, [phasePlan, supabase]);
 
-  /* ── Open code editor ── */
+  /*Open code editor*/
   const openCodeEditorForProblem = (
     problem: CodingProblem,
     target: "new-tab" | "same-tab" = "new-tab",
@@ -839,7 +849,7 @@ function InterviewPageContent() {
     handleSessionEnd("manual");
   };
 
-  /* ── Save Q&A + analyse ── */
+  /* Save Q&A + analyse*/
   const saveQAAndAnalyze = useCallback(async (
     question: string, answer: string,
     questionType: QuestionType,
@@ -916,7 +926,7 @@ function InterviewPageContent() {
     }
   }, [sessionConfig, supabase]);
 
-  /* ── End session ── */
+  /* End session*/
   const handleSessionEnd = useCallback(async (reason: "timeout" | "manual") => {
     if (isSessionEnded) return;
     setIsSessionEnded(true);
@@ -943,7 +953,7 @@ function InterviewPageContent() {
     router.push(`/dashboard/history?session=${sessionConfig.sessionId}&reason=${reason}`);
   }, [isSessionEnded, interviewTime, postureMetrics, sessionConfig.sessionId, supabase, router]);
 
-  /* ── Toggles ── */
+  /*Toggles*/
   const toggleCamera = () => {
     if (!isCommunicationPhase) return;
     setIsCameraOn(p => !p);
@@ -955,50 +965,26 @@ function InterviewPageContent() {
     else             { recognitionRef.current.start(); setIsMicOn(true); }
   };
 
-  /* ── Start interview ── */
-  const startInterview = async () => {
+  /* Start interview*/
+  const startInterview = () => {
     if (!sessionConfig.sessionId) {
       alert("No session found. Please go back and configure again.");
       return;
     }
+
     setIsInterviewStarted(true);
-    const firstPhase     = phasePlan[0] as Phase;
-    const questionType   = phaseToQuestionType(firstPhase);
-    const fallbackMessage = firstPhase === "behavioral"
-      ? sessionConfig.level === "senior"
-        ? `Tell me about a high-stakes, ambiguous ${sessionConfig.role} situation where stakeholders had conflicting priorities. How did you make the decision, align people, manage risk, and what was the measurable outcome?`
-        : "Tell me about a specific workplace situation where your actions had a meaningful impact. What did you do, and what did you learn?"
-      : sessionConfig.level === "senior"
-        ? `You are responsible for a production-critical ${sessionConfig.role} system facing conflicting reliability, delivery, and cost constraints. How would you frame the architecture decision, evaluate trade-offs, and manage failure risk?`
-        : `Explain a core ${sessionConfig.role} concept you use often, including how it works, when to use it, and one important limitation.`;
-
-    setIsLoading(true);
-    let firstMessage = fallbackMessage;
-    try {
-      const res = await fetch("/api/interview/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [],
-          context: { ...sessionConfig, currentPhase: firstPhase, questionType },
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && typeof data.reply === "string" && data.reply.trim()) {
-        firstMessage = data.reply.trim();
-      } else if (data.upgradeRequired) {
-        setUpgradeNotice(data.error ?? "You reached the normal account AI limit.");
-      }
-    } catch (error) {
-      console.error("Initial question error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-
-    setMessages([{ id: createMessageId(), sender: "ai", text: firstMessage, timestamp: new Date(), questionType }]);
+    const firstPhase = phasePlan[0] as Phase;
+    setMessages([{
+      id: createMessageId(),
+      sender: "ai",
+      text: `Welcome! Before we begin, could you introduce yourself and briefly describe your background and experience relevant to the ${sessionConfig.role} role?`,
+      timestamp: new Date(),
+      questionType: phaseToQuestionType(firstPhase),
+      isIntroduction: true,
+    }]);
   };
 
-  /* ── Send message ── */
+  /*Send message*/
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !sessionConfig.sessionId) return;
     setUpgradeNotice(null);
@@ -1040,7 +1026,9 @@ function InterviewPageContent() {
       };
       setMessages(prev => [...prev, aiMsg]);
 
-      saveQAAndAnalyze(lastAiQuestion, userMsg.text, questionTypeNow);
+      if (!lastAiMsg?.isIntroduction) {
+        saveQAAndAnalyze(lastAiQuestion, userMsg.text, questionTypeNow);
+      }
     } catch (e) {
       console.error(e);
       alert("Failed to get AI response. Please try again.");
@@ -1062,7 +1050,7 @@ function InterviewPageContent() {
 
   const engagement = computeEngagementScore(postureMetrics);
 
-  /* ─── Render ──────────────────────────────────────────────── */
+  /*Render*/
   return (
     <div className="flex h-full w-full bg-gray-50">
 
